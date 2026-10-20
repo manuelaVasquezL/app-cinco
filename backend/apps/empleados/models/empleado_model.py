@@ -1,6 +1,7 @@
 from django.db import models
 
 class Empleado(models.Model):
+    _database = 'azul'
     ESTADO_CHOICES = [
         ('ACTIVO', 'Activo'),
         ('INACTIVO', 'Inactivo'),
@@ -92,6 +93,7 @@ class Empleado(models.Model):
 
 
 class EmpleadoSiigo(models.Model):
+    _database = 'azul'
     id = models.AutoField(primary_key=True)
     cedula = models.CharField(max_length=20)
     estado = models.CharField(max_length=20)

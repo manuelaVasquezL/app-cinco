@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import flatpickr from "flatpickr";
 import "flatpickr/dist/flatpickr.css";
 import Label from "./Label";
@@ -204,6 +204,8 @@ export default function DatePicker({
   disabled,
 }: PropsType) {
   const [isMobile, setIsMobile] = useState(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -274,15 +276,20 @@ export default function DatePicker({
       ...options,
       mode: mode || "single",
       clickOpens: !disabled,
-      // monthSelectorType: "static",
-      // dateFormat: "Y-m-d",
       defaultDate,
-      onChange,
+      onChange: (selectedDates: Date[], dateStr: string, instance: flatpickr.Instance) => {
+        if (onChangeRef.current) {
+          if (Array.isArray(onChangeRef.current)) {
+            onChangeRef.current.forEach((hook) => hook(selectedDates, dateStr, instance));
+          } else {
+            onChangeRef.current(selectedDates, dateStr, instance);
+          }
+        }
+      },
       onReady: mergedOnReady,
       onOpen: mergedOnOpen,
       onMonthChange: mergedOnMonthChange,
       disableMobile: false,
-      // altInput: true,
       locale: {
         firstDayOfWeek: 1, // Lunes como primer día de la semana
         weekdays: {
@@ -328,7 +335,7 @@ export default function DatePicker({
           ],
         },
       },
-      appendTo: document.body, // ✅ aquí sí
+      appendTo: options.appendTo || document.body, // ✅ aquí sí como en Operaciones y Agenda
     });
 
     return () => {
@@ -336,7 +343,21 @@ export default function DatePicker({
         flatPickrInstance.destroy();
       }
     };
-  }, [mode, onChange, id, defaultDate, options, yearRange, isMobile, disabled]);
+  }, [mode, id, isMobile, disabled, JSON.stringify(options), JSON.stringify(yearRange)]);
+
+  // Sincronizar defaultDate sin destruir ni cerrar la instancia activa de Flatpickr
+  const defaultDateStr = formatInputDateValue(defaultDate);
+  useEffect(() => {
+    if (typeof window === "undefined" || isMobile) return;
+    const inputElement = document.getElementById(id) as (HTMLInputElement & { _flatpickr?: flatpickr.Instance }) | null;
+    if (inputElement?._flatpickr && defaultDate !== undefined) {
+      const currentSelected = inputElement._flatpickr.selectedDates[0];
+      const currentStr = currentSelected ? formatInputDateValue(currentSelected) : "";
+      if (currentStr !== defaultDateStr) {
+        inputElement._flatpickr.setDate(defaultDate, false);
+      }
+    }
+  }, [defaultDateStr, id, isMobile]);
 
   const mobileValue = formatInputDateValue(defaultDate);
 

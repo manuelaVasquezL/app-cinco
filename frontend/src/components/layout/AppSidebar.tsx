@@ -40,6 +40,15 @@ const defaultNavItems: NavItem[] = [
     ],
   },
   {
+    name: "Infraestructura",
+    subItems: [
+      {
+        name: "Infraestructura General",
+        path: "/infraestructura/general",
+      },
+    ],
+  },
+  {
     name: "RRHH",
     subItems: [
       {
@@ -347,7 +356,7 @@ const AppSidebar: React.FC = () => {
   return (
     <aside
       ref={asideRef}
-      className={`fixed top-0 left-0 z-100000 mt-16 flex h-screen flex-col border-r border-gray-200 bg-white px-5 text-gray-900 transition-all duration-300 ease-in-out lg:mt-0 dark:border-gray-800 dark:bg-gray-900 ${isSidebarOpen ? "w-72.5" : "w-22.5"
+      className={`fixed top-0 left-0 z-40 mt-16 flex h-screen flex-col border-r border-gray-200 bg-white px-5 text-gray-900 transition-all duration-300 ease-in-out lg:mt-0 dark:border-gray-800 dark:bg-gray-900 ${isSidebarOpen ? "w-72.5" : "w-22.5"
         } ${isMobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
       onMouseLeave={() => setCollapsedPreview(null)}
     >

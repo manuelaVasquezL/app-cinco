@@ -442,8 +442,14 @@ export default function ModalImportarCsv({ isOpen, onClose }: ModalImportarCsvPr
   const validCount = rows.filter(r => r.status === "valid").length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-opacity duration-300">
-      <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:items-center sm:p-4 overflow-y-auto animate-fade-in">
+      {/* Overlay con fondo claro difuminado idéntico a Operaciones (Actividades / Agenda) */}
+      <div
+        className="fixed inset-0 h-full w-full bg-gray-400/50 backdrop-blur-[32px] dark:bg-black/60 cursor-pointer"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative my-auto w-full max-w-4xl max-h-[88vh] flex flex-col bg-white dark:bg-gray-900 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* Cabecera */}
         <div className="p-6 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
