@@ -20,17 +20,11 @@ import { mappingPredioService } from "../services/mappingPredio.service";
 import { MappingPredio, CuadraCheckResult, DireccionCheckResult } from "../types";
 import { AlertaCuadraBanner } from "./AlertaCuadraBanner";
 import { AlertaDireccionFlotante } from "./AlertaDireccionFlotante";
-
-const TIPOS_VIA = [
-  { value: "CL", label: "CL - Calle" },
-  { value: "CRA", label: "CRA - Carrera" },
-  { value: "AV", label: "AV - Avenida" },
-  { value: "DG", label: "DG - Diagonal" },
-  { value: "TV", label: "TV - Transversal" },
-  { value: "CC", label: "CC - Circular" },
-  { value: "AUT", label: "AUT - Autopista" },
-  { value: "OTRO", label: "Otro / Libre" },
-];
+import {
+  DireccionCamposGroup,
+  parsearCalle,
+  componerCalle,
+} from "./DireccionCamposGroup";
 
 interface MappingPredioFormProps {
   predioEditando?: MappingPredio | null;
@@ -45,25 +39,34 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
 }) => {
   const [, startTransition] = useTransition();
 
-  // Estados del formulario
+  // Estados del formulario - Datos generales
   const [nombreConjunto, setNombreConjunto] = useState("");
+  const [barrio, setBarrio] = useState("");
+  const [loteAmp, setLoteAmp] = useState("");
+
+  // Dirección Principal
   const [tipoVia, setTipoVia] = useState("CL");
   const [numeroVia, setNumeroVia] = useState("");
   const [nombreCalleLibre, setNombreCalleLibre] = useState("");
   const [placaUnidad, setPlacaUnidad] = useState("");
   const [interior, setInterior] = useState("");
-  const [barrio, setBarrio] = useState("");
-  const [loteAmp, setLoteAmp] = useState("");
 
+  // Conteo de unidades
   const [numCasas, setNumCasas] = useState(0);
   const [numApartamentos, setNumApartamentos] = useState(0);
   const [numLocales, setNumLocales] = useState(0);
   const [numPisos, setNumPisos] = useState(1);
 
+  // Direcciones Alternativas
   const [mostrarAlternas, setMostrarAlternas] = useState(true);
-  const [calleAlterna2, setCalleAlterna2] = useState("");
+  const [tipoViaAlt2, setTipoViaAlt2] = useState("CL");
+  const [numeroViaAlt2, setNumeroViaAlt2] = useState("");
+  const [nombreCalleLibreAlt2, setNombreCalleLibreAlt2] = useState("");
   const [placaAlterna2, setPlacaAlterna2] = useState("");
-  const [calleAlterna3, setCalleAlterna3] = useState("");
+
+  const [tipoViaAlt3, setTipoViaAlt3] = useState("CL");
+  const [numeroViaAlt3, setNumeroViaAlt3] = useState("");
+  const [nombreCalleLibreAlt3, setNombreCalleLibreAlt3] = useState("");
   const [placaAlterna3, setPlacaAlterna3] = useState("");
 
   const [distribucion, setDistribucion] = useState("");
@@ -84,42 +87,42 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGettingGps, setIsGettingGps] = useState(false);
 
-  // Derivar nombre de calle unificado
-  const calleCalculada =
-    tipoVia === "OTRO"
-      ? nombreCalleLibre.toUpperCase().trim()
-      : numeroVia.trim()
-        ? `${tipoVia} ${numeroVia.trim().toUpperCase()}`
-        : "";
+  // Derivar nombre de calle principal unificado
+  const calleCalculada = componerCalle(tipoVia, numeroVia, nombreCalleLibre);
 
   // Cargar datos en caso de edición
   useEffect(() => {
     if (predioEditando) {
       setNombreConjunto(predioEditando.nombre_conjunto || "");
-      // Detectar si la calle inicia con algún prefijo conocido
-      const calle = predioEditando.nombre_calle || "";
-      const matchPrefijo = TIPOS_VIA.find((tv) => calle.startsWith(tv.value + " "));
-      if (matchPrefijo && matchPrefijo.value !== "OTRO") {
-        setTipoVia(matchPrefijo.value);
-        setNumeroVia(calle.substring(matchPrefijo.value.length + 1));
-        setNombreCalleLibre("");
-      } else {
-        setTipoVia("OTRO");
-        setNombreCalleLibre(calle);
-        setNumeroVia("");
-      }
+
+      // Parsear dirección principal
+      const pPrincipal = parsearCalle(predioEditando.nombre_calle || "");
+      setTipoVia(pPrincipal.tipoVia);
+      setNumeroVia(pPrincipal.numeroVia);
+      setNombreCalleLibre(pPrincipal.nombreCalleLibre);
       setPlacaUnidad(predioEditando.placa_unidad || "");
       setInterior(predioEditando.interior || "");
+
+      // Parsear dirección alterna 2
+      const pAlt2 = parsearCalle(predioEditando.calle_alterna_2 || "");
+      setTipoViaAlt2(pAlt2.tipoVia);
+      setNumeroViaAlt2(pAlt2.numeroVia);
+      setNombreCalleLibreAlt2(pAlt2.nombreCalleLibre);
+      setPlacaAlterna2(predioEditando.placa_alterna_2 || "");
+
+      // Parsear dirección alterna 3
+      const pAlt3 = parsearCalle(predioEditando.calle_alterna_3 || "");
+      setTipoViaAlt3(pAlt3.tipoVia);
+      setNumeroViaAlt3(pAlt3.numeroVia);
+      setNombreCalleLibreAlt3(pAlt3.nombreCalleLibre);
+      setPlacaAlterna3(predioEditando.placa_alterna_3 || "");
+
       setBarrio(predioEditando.barrio || "");
       setLoteAmp(predioEditando.lote_amp || "");
       setNumCasas(predioEditando.num_casas || 0);
       setNumApartamentos(predioEditando.num_apartamentos || 0);
       setNumLocales(predioEditando.num_locales || 0);
       setNumPisos(predioEditando.num_pisos || 1);
-      setCalleAlterna2(predioEditando.calle_alterna_2 || "");
-      setPlacaAlterna2(predioEditando.placa_alterna_2 || "");
-      setCalleAlterna3(predioEditando.calle_alterna_3 || "");
-      setPlacaAlterna3(predioEditando.placa_alterna_3 || "");
       setDistribucion(predioEditando.distribucion || "");
       setLatitud(predioEditando.latitud ? String(predioEditando.latitud) : "");
       setLongitud(predioEditando.longitud ? String(predioEditando.longitud) : "");
@@ -136,7 +139,7 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
     mappingPredioService
       .getBarriosSugeridos()
       .then((barrios) => setSugerenciasBarrios(barrios))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Alerta temprana: Detección de cuadra o plancha ya levantada
@@ -243,9 +246,13 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
     setNumApartamentos(0);
     setNumLocales(0);
     setNumPisos(1);
-    setCalleAlterna2("");
+    setTipoViaAlt2("CL");
+    setNumeroViaAlt2("");
+    setNombreCalleLibreAlt2("");
     setPlacaAlterna2("");
-    setCalleAlterna3("");
+    setTipoViaAlt3("CL");
+    setNumeroViaAlt3("");
+    setNombreCalleLibreAlt3("");
     setPlacaAlterna3("");
     setDistribucion("");
     setLatitud("");
@@ -269,6 +276,11 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
 
     setIsSubmitting(true);
 
+    const calleAlt2 = componerCalle(tipoViaAlt2, numeroViaAlt2, nombreCalleLibreAlt2);
+    const calleAlt3 = componerCalle(tipoViaAlt3, numeroViaAlt3, nombreCalleLibreAlt3);
+    const placaAlt2 = placaAlterna2.trim().toUpperCase();
+    const placaAlt3 = placaAlterna3.trim().toUpperCase();
+
     const payload: Partial<MappingPredio> = {
       nombre_conjunto: nombreConjunto.trim().toUpperCase(),
       nombre_calle: calleCalculada,
@@ -280,10 +292,10 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
       num_apartamentos: Number(numApartamentos) || 0,
       num_locales: Number(numLocales) || 0,
       num_pisos: Math.max(1, Number(numPisos) || 1),
-      calle_alterna_2: calleAlterna2.trim().toUpperCase(),
-      placa_alterna_2: placaAlterna2.trim().toUpperCase(),
-      calle_alterna_3: calleAlterna3.trim().toUpperCase(),
-      placa_alterna_3: placaAlterna3.trim().toUpperCase(),
+      calle_alterna_2: calleAlt2,
+      placa_alterna_2: (calleAlt2 || placaAlt2) ? placaAlt2 : "",
+      calle_alterna_3: calleAlt3,
+      placa_alterna_3: (calleAlt3 || placaAlt3) ? placaAlt3 : "",
       distribucion: distribucion.trim().toUpperCase(),
       latitud: latitud ? String(latitud).replace(",", ".") : null,
       longitud: longitud ? String(longitud).replace(",", ".") : null,
@@ -346,11 +358,10 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500 dark:text-gray-400">Total unidades:</span>
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-xs font-bold ${
-              totalUnidades > 0
+            className={`inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-xs font-bold ${totalUnidades > 0
                 ? "bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-300"
                 : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
-            }`}
+              }`}
           >
             <Sparkles className="h-3 w-3" />
             {totalUnidades} unidad{totalUnidades === 1 ? "" : "es"}
@@ -442,87 +453,22 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
           2. Dirección Principal del Predio
         </h3>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
-          {/* Tipo de Vía */}
-          <div className="sm:col-span-3">
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              Tipo de Vía <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={tipoVia}
-              onChange={(e) => setTipoVia(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            >
-              {TIPOS_VIA.map((tv) => (
-                <option key={tv.value} value={tv.value}>
-                  {tv.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Número / Nombre de la Vía */}
-          <div className="sm:col-span-4">
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              {tipoVia === "OTRO" ? "Dirección / Vía Completa" : "Número / Letra de la Vía"}{" "}
-              <span className="text-red-500">*</span>
-            </label>
-            {tipoVia === "OTRO" ? (
-              <input
-                type="text"
-                value={nombreCalleLibre}
-                onChange={(e) => setNombreCalleLibre(e.target.value.toUpperCase())}
-                placeholder="Ej: CALLE 21C, VEREDA EL SALADO KM 2"
-                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              />
-            ) : (
-              <input
-                type="text"
-                value={numeroVia}
-                onChange={(e) => setNumeroVia(e.target.value.toUpperCase())}
-                placeholder="Ej: 21C, 45B, 80"
-                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              />
-            )}
-          </div>
-
-          {/* Placa Puerta (PLACAUNIDA) */}
-          <div className="sm:col-span-3">
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              Placa / Número (PLACAUNIDA) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={placaUnidad}
-              onChange={(e) => setPlacaUnidad(e.target.value.toUpperCase())}
-              placeholder="Ej: 40A-15, 12-34"
-              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            />
-          </div>
-
-          {/* Interior / Torre */}
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              Interior / Torre (INT)
-            </label>
-            <input
-              type="text"
-              value={interior}
-              onChange={(e) => setInterior(e.target.value.toUpperCase())}
-              placeholder="Ej: 6, T1, BL-2"
-              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            />
-          </div>
-        </div>
-
-        {/* Vista previa de la dirección formateada */}
-        <div className="mt-3 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span>Vista previa:</span>
-          <span className="font-semibold text-brand-600 dark:text-brand-400">
-            {calleCalculada || "(vía)"} #{placaUnidad || "(placa)"}
-            {interior ? ` Int. ${interior}` : ""}
-          </span>
-        </div>
+        <DireccionCamposGroup
+          tipoVia={tipoVia}
+          onTipoViaChange={setTipoVia}
+          numeroVia={numeroVia}
+          onNumeroViaChange={setNumeroVia}
+          nombreCalleLibre={nombreCalleLibre}
+          onNombreCalleLibreChange={setNombreCalleLibre}
+          placa={placaUnidad}
+          onPlacaChange={setPlacaUnidad}
+          interior={interior}
+          onInteriorChange={setInterior}
+          mostrarInterior={true}
+          esObligatoria={true}
+          labelVia="Número / Letra de la Vía"
+          labelPlaca="Placa / Número (PLACAUNIDA)"
+        />
       </div>
 
       {/* SECCIÓN 3: CONTEO DE INMUEBLES Y PISOS */}
@@ -731,7 +677,7 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
             ) : (
               <Navigation className="h-4 w-4" />
             )}
-             Tomar Ubicación Actual
+            Tomar Ubicación Actual
           </button>
 
           {latitud && longitud && (
@@ -756,7 +702,7 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
           className="flex w-full items-center justify-between text-left"
         >
           <span className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-800 dark:text-gray-200">
-            5. Direcciones Alternativas (Esquinas / Accesos Secundarios)
+            5. Direcciones Alternativas
           </span>
           <span className="rounded-md border border-gray-200 bg-gray-100 p-1 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
             {mostrarAlternas ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -764,61 +710,47 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
         </button>
 
         {mostrarAlternas && (
-          <div className="mt-4 space-y-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+          <div className="mt-4 space-y-5 pt-3 border-t border-gray-100 dark:border-gray-800">
             {/* Alterna 2 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Vía Alternativa 2 (NOMBRECALLANT2)
-                </label>
-                <input
-                  type="text"
-                  value={calleAlterna2}
-                  onChange={(e) => setCalleAlterna2(e.target.value.toUpperCase())}
-                  placeholder="Ej: CRA 22"
-                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Placa Alternativa 2 (PLACAUNIDAANT2)
-                </label>
-                <input
-                  type="text"
-                  value={placaAlterna2}
-                  onChange={(e) => setPlacaAlterna2(e.target.value.toUpperCase())}
-                  placeholder="Ej: 30-15"
-                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-              </div>
+            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800/80 dark:bg-gray-800/30">
+              <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                Dirección Alternativa 2 (Acceso secundario / Esquina)
+              </span>
+              <DireccionCamposGroup
+                tipoVia={tipoViaAlt2}
+                onTipoViaChange={setTipoViaAlt2}
+                numeroVia={numeroViaAlt2}
+                onNumeroViaChange={setNumeroViaAlt2}
+                nombreCalleLibre={nombreCalleLibreAlt2}
+                onNombreCalleLibreChange={setNombreCalleLibreAlt2}
+                placa={placaAlterna2}
+                onPlacaChange={setPlacaAlterna2}
+                mostrarInterior={false}
+                esObligatoria={false}
+                labelVia="Vía Alternativa 2"
+                labelPlaca="Placa Alternativa 2"
+              />
             </div>
 
             {/* Alterna 3 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Vía Alternativa 3 (NOMBRECALLANT3)
-                </label>
-                <input
-                  type="text"
-                  value={calleAlterna3}
-                  onChange={(e) => setCalleAlterna3(e.target.value.toUpperCase())}
-                  placeholder="Opcional"
-                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Placa Alternativa 3 (PLACAUNIDAANT3)
-                </label>
-                <input
-                  type="text"
-                  value={placaAlterna3}
-                  onChange={(e) => setPlacaAlterna3(e.target.value.toUpperCase())}
-                  placeholder="Opcional"
-                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-              </div>
+            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800/80 dark:bg-gray-800/30">
+              <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
+                Dirección Alternativa 3 (Tercer acceso / Placa anterior)
+              </span>
+              <DireccionCamposGroup
+                tipoVia={tipoViaAlt3}
+                onTipoViaChange={setTipoViaAlt3}
+                numeroVia={numeroViaAlt3}
+                onNumeroViaChange={setNumeroViaAlt3}
+                nombreCalleLibre={nombreCalleLibreAlt3}
+                onNombreCalleLibreChange={setNombreCalleLibreAlt3}
+                placa={placaAlterna3}
+                onPlacaChange={setPlacaAlterna3}
+                mostrarInterior={false}
+                esObligatoria={false}
+                labelVia="Vía Alternativa 3"
+                labelPlaca="Placa Alternativa 3"
+              />
             </div>
           </div>
         )}

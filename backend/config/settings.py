@@ -47,7 +47,8 @@ ALLOWED_HOSTS = [
     'www.api.cincosas.com', 
     '192.168.79.11', 
     '127.0.0.1', 
-    'localhost'
+    'localhost',
+    '.trycloudflare.com',
 ]
 
 # CORS: Solo permitir orígenes específicos (whitelist)
@@ -61,6 +62,10 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.frontend.cincosas.com",
 ]
 
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.trycloudflare\.com$",
+]
+
 CORS_EXPOSE_HEADERS = [
     "Content-Disposition",
 ]
@@ -70,7 +75,12 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:3000",
     "https://frontend.cincosas.com",
     "https://www.frontend.cincosas.com",
+    "https://*.trycloudflare.com",
 ]
+
+# Configuración de proxy y SSL para túneles (Cloudflare) y reverse proxies
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
 
 # Configuración de cookies seguras
 SECURE_COOKIE = not DEBUG  # Solo HTTPS en producción
@@ -79,8 +89,8 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True  # Protección XSS
 CSRF_COOKIE_HTTPONLY = False  # Necesario para leer el token en el frontend
 
-# SameSite='Strict' para máxima protección CSRF
-SESSION_COOKIE_SAMESITE = 'Strict'
+# SameSite='Lax' para permitir navegación fluida y compatibilidad con túneles
+SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'  # Lax para CSRF token (necesita ser leído por JS)
 
 # Content Security Policy y security headers

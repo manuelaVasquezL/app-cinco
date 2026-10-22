@@ -3,8 +3,6 @@
 import React, { useState } from "react";
 import {
   Search,
-  Download,
-  Upload,
   RefreshCw,
   Edit2,
   Trash2,
@@ -15,6 +13,8 @@ import {
   Layers,
 } from "lucide-react";
 import { toast } from "sonner";
+import Button from "@/components/ui/button/Button";
+import { DownloadIcon } from "@/icons";
 import { MappingPredio, MappingPredioFiltros } from "../types";
 import { mappingPredioService } from "../services/mappingPredio.service";
 
@@ -93,35 +93,56 @@ export const MappingPrediosTable: React.FC<MappingPrediosTableProps> = ({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto flex items-center justify-center gap-2"
             onClick={onRefrescar}
             disabled={isLoading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+            startIcon={
+              <RefreshCw
+                className={`h-4 w-4 text-gray-500 dark:text-gray-400 ${isLoading ? "animate-spin" : ""}`}
+              />
+            }
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
             Refrescar
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto flex items-center justify-center gap-2"
             onClick={onAbrirImportModal}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-900 dark:bg-brand-950/60 dark:text-brand-300"
+            startIcon={
+              <svg
+                className="h-4 w-4 text-gray-500 dark:text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                />
+              </svg>
+            }
           >
-            <Upload className="h-3.5 w-3.5" />
             Cargar CSV
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto flex items-center justify-center gap-2"
             onClick={handleExportarExcel}
-            disabled={isExporting}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-green-700 active:scale-95 disabled:opacity-50"
+            disabled={isExporting || !predios.length}
+            startIcon={<DownloadIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
           >
-            <Download className="h-3.5 w-3.5" />
-            Exportar Excel
-          </button>
+            {isExporting ? "Exportando..." : "Exportar Excel"}
+          </Button>
         </div>
       </div>
 
