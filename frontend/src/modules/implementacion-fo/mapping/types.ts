@@ -24,7 +24,25 @@ export interface MappingPredio {
   created_by: number | null;
   created_by_nombre?: string;
   updated_at: string;
+  sp_synced?: boolean;
+  sp_synced_at?: string | null;
+  sp_sync_error?: string;
 }
+
+export interface SharePointMappingConfig {
+  id: number;
+  barrio: string;
+  descripcion: string;
+  tipo_destino: "EXCEL" | "LISTA";
+  sp_drive_id: string;
+  sp_item_id: string;
+  sp_table_name: string;
+  sp_list_id: string;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 
 export interface MappingPredioFormData {
   nombre_conjunto: string;

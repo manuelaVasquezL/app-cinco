@@ -67,6 +67,7 @@ export interface DireccionCamposGroupProps {
   onInteriorChange?: (val: string) => void;
   mostrarInterior?: boolean;
   esObligatoria?: boolean;
+  mostrarVistaPrevia?: boolean;
   labelVia?: string;
   labelPlaca?: string;
 }
@@ -84,12 +85,31 @@ export const DireccionCamposGroup: React.FC<DireccionCamposGroupProps> = ({
   onInteriorChange,
   mostrarInterior = false,
   esObligatoria = false,
+  mostrarVistaPrevia = true,
   labelVia,
   labelPlaca,
 }) => {
-  const calleCalculada = componerCalle(tipoVia, numeroVia, nombreCalleLibre);
   const placaLimpia = placa.trim();
-  const tieneDatos = Boolean(calleCalculada || placaLimpia);
+  const tieneDatos = Boolean(
+    (tipoVia === "OTRO" ? nombreCalleLibre.trim() : numeroVia.trim()) ||
+    placaLimpia ||
+    (mostrarInterior && interior.trim())
+  );
+
+  // Formateo de la vía para vista previa
+  const viaPreview =
+    tipoVia === "OTRO"
+      ? nombreCalleLibre.trim().toUpperCase() || "(vía libre)"
+      : numeroVia.trim()
+      ? `${tipoVia} ${numeroVia.trim().toUpperCase()}`
+      : `${tipoVia} (vía)`;
+
+  // Formateo de la placa para vista previa
+  const placaPreview = placaLimpia ? `#${placaLimpia}` : "#(placa)";
+
+  // Interior opcional
+  const interiorPreview =
+    mostrarInterior && interior.trim() ? ` Int. ${interior.trim().toUpperCase()}` : "";
 
   return (
     <div className="space-y-3">
@@ -168,14 +188,25 @@ export const DireccionCamposGroup: React.FC<DireccionCamposGroupProps> = ({
         )}
       </div>
 
-      {/* Vista previa */}
-      {(tieneDatos || esObligatoria) && (
+      {/* Vista previa en vivo */}
+      {mostrarVistaPrevia && (
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span>Vista previa:</span>
-          <span className="font-semibold text-brand-600 dark:text-brand-400">
-            {calleCalculada || (esObligatoria ? "(vía)" : "—")} #{placaLimpia || (esObligatoria ? "(placa)" : "—")}
-            {mostrarInterior && interior ? ` Int. ${interior}` : ""}
+          <span className="font-medium">Vista previa:</span>
+          <span
+            className={`font-semibold ${
+              tieneDatos
+                ? "text-brand-600 dark:text-brand-400"
+                : "text-gray-400 dark:text-gray-500"
+            }`}
+          >
+            {viaPreview} {placaPreview}
+            {interiorPreview}
           </span>
+          {!tieneDatos && !esObligatoria && (
+            <span className="text-[11px] text-gray-400 dark:text-gray-500 italic">
+              (Opcional)
+            </span>
+          )}
         </div>
       )}
     </div>

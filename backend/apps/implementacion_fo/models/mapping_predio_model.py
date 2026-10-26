@@ -160,6 +160,23 @@ class MappingPredio(models.Model):
         db_column="deleted_by",
     )
 
+    # 8. Sincronización con SharePoint / Excel
+    sp_synced = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Indica si el registro ya fue sincronizado con el archivo de SharePoint",
+    )
+    sp_synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha y hora de sincronización exitosa",
+    )
+    sp_sync_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Mensaje de error en caso de fallo al sincronizar con SharePoint",
+    )
+
     EXCEL_HEADER_MAPPING = {
         "NOMBRE CONJUNTO": "nombre_conjunto",
         "NOMBRECALL": "nombre_calle",
@@ -189,6 +206,7 @@ class MappingPredio(models.Model):
             models.Index(fields=["barrio", "lote_amp"], name="idx_fo_mp_barrio_amp"),
             models.Index(fields=["nombre_calle", "placa_unidad"], name="idx_fo_mp_calle_placa"),
             models.Index(fields=["is_deleted", "-id"], name="idx_fo_mp_deleted_id"),
+            models.Index(fields=["sp_synced", "-id"], name="idx_fo_mp_sp_synced"),
         ]
 
     def __str__(self):

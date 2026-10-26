@@ -25,6 +25,7 @@ import {
   parsearCalle,
   componerCalle,
 } from "./DireccionCamposGroup";
+import { obtenerGeolocalizacionPrecisa } from "@/utils/geolocation";
 
 interface MappingPredioFormProps {
   predioEditando?: MappingPredio | null;
@@ -77,6 +78,8 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
   // Sugerencias de Barrios y Planchas
   const [sugerenciasBarrios, setSugerenciasBarrios] = useState<string[]>([]);
   const [mostrarSugerenciasBarrio, setMostrarSugerenciasBarrio] = useState(false);
+  const [barriosSharePoint, setBarriosSharePoint] = useState<Array<{ barrio: string; descripcion?: string }>>([]);
+  const [modoManualBarrio, setModoManualBarrio] = useState(false);
 
   // Alertas tempranas
   const [cuadraCheck, setCuadraCheck] = useState<CuadraCheckResult | null>(null);
@@ -134,11 +137,16 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
     }
   }, [predioEditando]);
 
-  // Cargar barrios sugeridos iniciales
+  // Cargar barrios sugeridos iniciales y barrios enlazados a SharePoint
   useEffect(() => {
     mappingPredioService
       .getBarriosSugeridos()
       .then((barrios) => setSugerenciasBarrios(barrios))
+      .catch(() => { });
+
+    mappingPredioService
+      .getBarriosSharePoint()
+      .then((items) => setBarriosSharePoint(items))
       .catch(() => { });
   }, []);
 
@@ -192,45 +200,52 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
     return () => clearTimeout(timer);
   }, [calleCalculada, placaUnidad, interior, predioEditando]);
 
-  // Captura satelital de GPS en 1 clic
-  const handleObtenerGps = () => {
-    if (!navigator.geolocation) {
+  // Captura satelital de GPS de alta precisión en 1 clic
+  const handleObtenerGps = async () => {
+    if (typeof window === "undefined" || !navigator.geolocation) {
       toast.error("La geolocalización no es soportada por este navegador");
       return;
     }
 
     setIsGettingGps(true);
-    toast.info("Obteniendo coordenadas satelitales del dispositivo...");
+    const toastId = toast.loading("Obteniendo ubicación... lectura 1/4...");
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setIsGettingGps(false);
-        const lat = position.coords.latitude.toFixed(6);
-        const lng = position.coords.longitude.toFixed(6);
-        setLatitud(lat);
-        setLongitud(lng);
-        toast.success(`GPS capturado con precisión de ±${Math.round(position.coords.accuracy)}m`, {
+    try {
+      const res = await obtenerGeolocalizacionPrecisa({
+        maxIntentos: 4,
+        umbralPrecision: 15,
+        timeoutPorIntento: 7000,
+        onProgreso: ({ intento, maxIntentos, precisionActual }) => {
+          const textoPrecision =
+            precisionActual !== undefined ? ` (precisión actual ±${precisionActual}m)` : "";
+          toast.loading(
+            `Obteniendo ubicación... lectura ${intento}/${maxIntentos}${textoPrecision}...`,
+            { id: toastId }
+          );
+        },
+      });
+
+      const lat = res.latitud.toFixed(6);
+      const lng = res.longitud.toFixed(6);
+      setLatitud(lat);
+      setLongitud(lng);
+
+      if (res.esOptima) {
+        toast.success(`GPS capturado con precisión óptima de ±${res.precision}m`, {
+          id: toastId,
           description: `Lat: ${lat}, Long: ${lng}`,
         });
-      },
-      (error) => {
-        setIsGettingGps(false);
-        let mensaje = "No se pudo obtener la ubicación GPS.";
-        if (error.code === error.PERMISSION_DENIED) {
-          mensaje = "Permiso de ubicación denegado en el navegador.";
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          mensaje = "Señal de GPS no disponible en este momento.";
-        } else if (error.code === error.TIMEOUT) {
-          mensaje = "Tiempo de espera agotado al buscar satélites.";
-        }
-        toast.error(mensaje);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 0,
-      },
-    );
+      } else {
+        toast.warning(`GPS capturado con precisión de ±${res.precision}m`, {
+          id: toastId,
+          description: `Lat: ${lat}, Long: ${lng}`,
+        });
+      }
+    } catch (error: any) {
+      toast.error(error.message || "No se pudo obtener la ubicación GPS.", { id: toastId });
+    } finally {
+      setIsGettingGps(false);
+    }
   };
 
   const handleLimpiarFormulario = () => {
@@ -377,48 +392,78 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
         </h3>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {/* Barrio con autocompletado */}
+          {/* Barrio con selector de SharePoint o autocompletado */}
           <div className="relative">
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              Barrio / Vereda / Sector <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={barrio}
-              onChange={(e) => {
-                setBarrio(e.target.value.toUpperCase());
-                setMostrarSugerenciasBarrio(true);
-              }}
-              onFocus={() => setMostrarSugerenciasBarrio(true)}
-              placeholder="Ej: BELEN, LAURELES, ROBLEDO"
-              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            />
-            {/* Lista desplegable de sugerencias de barrio */}
-            {mostrarSugerenciasBarrio && sugerenciasBarrios.length > 0 && barrio && (
-              <ul className="absolute z-30 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg dark:border-gray-700 dark:bg-gray-800">
-                {sugerenciasBarrios
-                  .filter((b) => b.toUpperCase().includes(barrio.toUpperCase()))
-                  .slice(0, 8)
-                  .map((sug) => (
-                    <li
-                      key={sug}
-                      onClick={() => {
-                        setBarrio(sug);
-                        setMostrarSugerenciasBarrio(false);
-                      }}
-                      className="cursor-pointer px-3 py-1.5 hover:bg-brand-50 text-gray-800 dark:text-gray-200 dark:hover:bg-brand-950/40"
-                    >
-                      {sug}
-                    </li>
-                  ))}
-              </ul>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                Barrio <span className="text-red-500">*</span>
+              </label>
+              {barriosSharePoint.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setModoManualBarrio(!modoManualBarrio)}
+                  className="text-[10px] text-brand-600 hover:underline dark:text-brand-400 font-medium"
+                >
+                  {modoManualBarrio ? "Ver selector" : "Escribir manual"}
+                </button>
+              )}
+            </div>
+
+            {barriosSharePoint.length > 0 && !modoManualBarrio ? (
+              <select
+                value={barrio}
+                onChange={(e) => setBarrio(e.target.value)}
+                required
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              >
+                <option value="">-- Selecciona el barrio --</option>
+                {barriosSharePoint.map((b) => (
+                  <option key={b.barrio} value={b.barrio}>
+                    {b.barrio}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={barrio}
+                  onChange={(e) => {
+                    setBarrio(e.target.value.toUpperCase());
+                    setMostrarSugerenciasBarrio(true);
+                  }}
+                  onFocus={() => setMostrarSugerenciasBarrio(true)}
+                  placeholder="Ej: BELEN, LAURELES, ROBLEDO"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm uppercase placeholder:normal-case focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                />
+                {/* Lista desplegable de sugerencias de barrio */}
+                {mostrarSugerenciasBarrio && sugerenciasBarrios.length > 0 && barrio && (
+                  <ul className="absolute z-30 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    {sugerenciasBarrios
+                      .filter((b) => b.toUpperCase().includes(barrio.toUpperCase()))
+                      .slice(0, 8)
+                      .map((sug) => (
+                        <li
+                          key={sug}
+                          onClick={() => {
+                            setBarrio(sug);
+                            setMostrarSugerenciasBarrio(false);
+                          }}
+                          className="cursor-pointer px-3 py-1.5 hover:bg-brand-50 text-gray-800 dark:text-gray-200 dark:hover:bg-brand-950/40"
+                        >
+                          {sug}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
 
           {/* Lote / Plancha AMP */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-              Plancha / Lote Cartográfico (AMP) <span className="text-red-500">*</span>
+              AMP <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -701,7 +746,7 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
           onClick={() => setMostrarAlternas(!mostrarAlternas)}
           className="flex w-full items-center justify-between text-left"
         >
-          <span className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-800 dark:text-gray-200">
+          <span className="text-sm font-semibold uppercase tracking-wider text-gray-800 dark:text-gray-200">
             5. Direcciones Alternativas
           </span>
           <span className="rounded-md border border-gray-200 bg-gray-100 p-1 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
@@ -714,7 +759,7 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
             {/* Alterna 2 */}
             <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800/80 dark:bg-gray-800/30">
               <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                Dirección Alternativa 2 (Acceso secundario / Esquina)
+                Dirección Alternativa 2
               </span>
               <DireccionCamposGroup
                 tipoVia={tipoViaAlt2}
@@ -735,7 +780,7 @@ export const MappingPredioForm: React.FC<MappingPredioFormProps> = ({
             {/* Alterna 3 */}
             <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800/80 dark:bg-gray-800/30">
               <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                Dirección Alternativa 3 (Tercer acceso / Placa anterior)
+                Dirección Alternativa 3
               </span>
               <DireccionCamposGroup
                 tipoVia={tipoViaAlt3}

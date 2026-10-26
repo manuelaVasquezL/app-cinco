@@ -11,6 +11,11 @@ import {
   MapPin,
   Calendar,
   Layers,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  RotateCw,
+  Cloud,
 } from "lucide-react";
 import { toast } from "sonner";
 import Button from "@/components/ui/button/Button";
@@ -39,6 +44,51 @@ export const MappingPrediosTable: React.FC<MappingPrediosTableProps> = ({
 }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [isSyncingBarrio, setIsSyncingBarrio] = useState(false);
+
+  const handleSyncIndividual = async (id: number) => {
+    setSyncingId(id);
+    toast.info("Sincronizando predio con SharePoint...");
+    try {
+      const res = await mappingPredioService.syncSharePoint(id);
+      if (res.success) {
+        toast.success("Predio sincronizado exitosamente con el Excel de SharePoint");
+        onRefrescar();
+      } else {
+        toast.error(res.error || res.message || "Error al sincronizar con SharePoint");
+        onRefrescar();
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || "Error de red al sincronizar con SharePoint");
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  const handleSyncBarrio = async () => {
+    const barrio = filtros.barrio?.trim();
+    if (!barrio) {
+      toast.warning("Filtra primero por un barrio específico para sincronizarlo en lote");
+      return;
+    }
+
+    setIsSyncingBarrio(true);
+    toast.info(`Sincronizando lote para el barrio '${barrio}'...`);
+    try {
+      const res = await mappingPredioService.syncSharePointBarrio(barrio);
+      if (res.success) {
+        toast.success(`Se sincronizaron ${res.count || 0} predios en el Excel de '${barrio}'`);
+        onRefrescar();
+      } else {
+        toast.error(res.error || res.message || "No se pudo sincronizar el lote");
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || "Error al sincronizar lote con SharePoint");
+    } finally {
+      setIsSyncingBarrio(false);
+    }
+  };
 
   const handleExportarExcel = async () => {
     setIsExporting(true);
@@ -143,6 +193,23 @@ export const MappingPrediosTable: React.FC<MappingPrediosTableProps> = ({
           >
             {isExporting ? "Exportando..." : "Exportar Excel"}
           </Button>
+
+          {filtros.barrio && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+              onClick={handleSyncBarrio}
+              disabled={isSyncingBarrio || !predios.length}
+              startIcon={
+                <Cloud
+                  className={`h-4 w-4 ${isSyncingBarrio ? "animate-pulse text-amber-500" : ""}`}
+                />
+              }
+            >
+              {isSyncingBarrio ? "Sincronizando..." : `Subir a SharePoint (${filtros.barrio})`}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -157,6 +224,7 @@ export const MappingPrediosTable: React.FC<MappingPrediosTableProps> = ({
                 <th className="px-4 py-3 text-center">Unidades</th>
                 <th className="px-4 py-3 text-center">Pisos</th>
                 <th className="px-4 py-3">GPS / Coordenadas</th>
+                <th className="px-4 py-3 text-center">SharePoint</th>
                 <th className="px-4 py-3">Registro & Recolector</th>
                 <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
@@ -164,14 +232,14 @@ export const MappingPrediosTable: React.FC<MappingPrediosTableProps> = ({
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                     <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
                     <p className="mt-2 text-xs">Cargando predios levantados...</p>
                   </td>
                 </tr>
               ) : predios.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                     <Building className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
                     <p className="mt-2 font-medium">No se encontraron predios registrados</p>
                     <p className="text-[11px] text-gray-400">
@@ -251,6 +319,65 @@ export const MappingPrediosTable: React.FC<MappingPrediosTableProps> = ({
                         </a>
                       ) : (
                         <span className="text-[11px] text-gray-400">Sin GPS</span>
+                      )}
+                    </td>
+
+                    {/* Estado SharePoint */}
+                    <td className="px-4 py-3 text-center">
+                      {predio.sp_synced ? (
+                        <div
+                          className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                          title={
+                            predio.sp_synced_at
+                              ? `Sincronizado: ${new Date(predio.sp_synced_at).toLocaleString("es-CO")}`
+                              : "Sincronizado con SharePoint"
+                          }
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Sincronizado</span>
+                        </div>
+                      ) : predio.sp_sync_error ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-400 max-w-[110px] truncate"
+                            title={predio.sp_sync_error}
+                          >
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <span>Error</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleSyncIndividual(predio.id)}
+                            disabled={syncingId === predio.id}
+                            className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-brand-600 dark:hover:bg-gray-800"
+                            title="Reintentar subir a SharePoint"
+                          >
+                            <RotateCw
+                              className={`h-3 w-3 ${syncingId === predio.id ? "animate-spin text-brand-500" : ""}`}
+                            />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                            title="Pendiente de enviar al archivo de Excel en SharePoint"
+                          >
+                            <Clock className="h-3 w-3" />
+                            <span>Pendiente</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleSyncIndividual(predio.id)}
+                            disabled={syncingId === predio.id}
+                            className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-brand-600 dark:hover:bg-gray-800"
+                            title="Sincronizar a SharePoint"
+                          >
+                            <RotateCw
+                              className={`h-3 w-3 ${syncingId === predio.id ? "animate-spin text-brand-500" : ""}`}
+                            />
+                          </button>
+                        </div>
                       )}
                     </td>
 

@@ -102,4 +102,31 @@ export const mappingPredioService = {
     });
     return res.data;
   },
+
+  async syncSharePoint(predioId: number): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await api.post(`${BASE_URL}/${predioId}/sync-sharepoint/`);
+    return res.data;
+  },
+
+  async syncSharePointBarrio(barrio: string): Promise<{ success: boolean; count?: number; message?: string; error?: string }> {
+    const res = await api.post(`${BASE_URL}/sync-sharepoint-barrio/`, { barrio });
+    return res.data;
+  },
+
+  async testSharePointConexion(): Promise<{ success: boolean; message?: string; drives_count?: number; error?: string }> {
+    const res = await api.get("/implementacion-fo/sharepoint-mapping/test-conexion/");
+    return res.data;
+  },
+
+  async getBarriosSharePoint(): Promise<Array<{ barrio: string; descripcion?: string; sp_item_id?: string }>> {
+    try {
+      const res = await api.get("/implementacion-fo/sharepoint-mapping/");
+      const data = res.data?.results || res.data || [];
+      return data.filter((c: any) => c.activo !== false);
+    } catch {
+      return [];
+    }
+  },
 };
+
+

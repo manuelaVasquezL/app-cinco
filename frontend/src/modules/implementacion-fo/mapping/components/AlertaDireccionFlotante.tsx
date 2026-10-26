@@ -32,9 +32,6 @@ export const AlertaDireccionFlotante: React.FC<AlertaDireccionFlotanteProps> = (
               Registrado como: <strong>{primeraCoincidencia.nombre_conjunto || primeraCoincidencia.direccion_completa}</strong> ({primeraCoincidencia.barrio} - Plancha {primeraCoincidencia.lote_amp}).
             </p>
           )}
-          <p className="mt-1 text-[11px] text-brand-700 dark:text-brand-400">
-            💡 <strong>Sin bloqueos:</strong> Si corresponde a otra torre, interior o adición de esta dirección, puedes continuar y guardar normalmente.
-          </p>
         </div>
       </div>
     </div>

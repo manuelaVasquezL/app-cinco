@@ -346,3 +346,10 @@ LOGGING = {
         },
     },
 }
+
+# SharePoint / Microsoft Graph Configuration
+SHAREPOINT_TENANT_ID = os.environ.get('SHAREPOINT_TENANT_ID', '')
+SHAREPOINT_CLIENT_ID = os.environ.get('SHAREPOINT_CLIENT_ID', '')
+SHAREPOINT_CLIENT_SECRET = os.environ.get('SHAREPOINT_CLIENT_SECRET', '')
+SHAREPOINT_SITE_URL = os.environ.get('SHAREPOINT_SITE_URL', '')
+

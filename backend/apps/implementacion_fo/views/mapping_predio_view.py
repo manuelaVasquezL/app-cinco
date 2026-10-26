@@ -194,3 +194,38 @@ class MappingPredioViewSet(ModelViewSet):
         )
         response["Content-Disposition"] = 'attachment; filename="mapping_predios_fo.xlsx"'
         return response
+
+    @extend_schema(
+        summary="Reintentar sincronización con SharePoint",
+        description="Fuerza el envío del predio individual hacia la tabla de Excel en SharePoint.",
+    )
+    @action(detail=True, methods=["post"], url_path="sync-sharepoint")
+    def sync_sharepoint(self, request, pk=None):
+        from apps.implementacion_fo.services import SharePointMappingService
+
+        predio = self.get_object()
+        resultado = SharePointMappingService.sync_predio_to_sharepoint(predio)
+        if resultado.get("success"):
+            return Response(resultado, status=status.HTTP_200_OK)
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        summary="Sincronización en lote hacia SharePoint por Barrio",
+        description="Envía los registros pendientes de un barrio en un solo lote hacia SharePoint.",
+    )
+    @action(detail=False, methods=["post"], url_path="sync-sharepoint-barrio")
+    def sync_sharepoint_barrio(self, request):
+        from apps.implementacion_fo.services import SharePointMappingService
+
+        barrio = request.data.get("barrio")
+        if not barrio:
+            return Response(
+                {"error": "Debes especificar el parámetro 'barrio'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resultado = SharePointMappingService.sync_batch_by_barrio(barrio)
+        if resultado.get("success"):
+            return Response(resultado, status=status.HTTP_200_OK)
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+

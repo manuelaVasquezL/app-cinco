@@ -4,10 +4,12 @@ from .mapping_predio_serializer import (
     CuadraCheckResponseSerializer,
     DireccionCheckResponseSerializer,
 )
+from .sharepoint_mapping_serializer import SharePointMappingConfigSerializer
 
 __all__ = [
     "MappingPredioReadSerializer",
     "MappingPredioWriteSerializer",
     "CuadraCheckResponseSerializer",
     "DireccionCheckResponseSerializer",
+    "SharePointMappingConfigSerializer",
 ]

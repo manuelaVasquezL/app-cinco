@@ -12,6 +12,7 @@ import {
   Layers,
   Sparkles,
   RefreshCw,
+  Cloud,
 } from "lucide-react";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
 import { MappingPredio, MappingPredioFiltros } from "./types";
@@ -66,6 +67,7 @@ export const MappingPrediosView: React.FC = () => {
   const totalUnidades = totalCasas + totalAptos + totalLocales;
   const barriosUnicos = new Set(predios.map((p) => p.barrio).filter(Boolean)).size;
   const planchasUnicas = new Set(predios.map((p) => p.lote_amp).filter(Boolean)).size;
+  const totalSincronizados = predios.filter((p) => p.sp_synced).length;
 
   return (
     <div className="space-y-6">
@@ -148,16 +150,18 @@ export const MappingPrediosView: React.FC = () => {
 
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500">Carga Rápida</span>
-            <FileSpreadsheet className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+            <span className="text-xs text-gray-500">SharePoint (Listas)</span>
+            <Cloud className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <button
-            type="button"
-            onClick={() => setIsImportModalOpen(true)}
-            className="mt-2 block w-full rounded-lg bg-brand-50 py-1.5 text-center text-xs font-bold text-brand-700 hover:bg-brand-100 dark:bg-brand-950/60 dark:text-brand-300 transition-colors"
-          >
-            Subir CSV Masivo
-          </button>
+          <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
+            {totalSincronizados}
+            <span className="text-xs font-normal text-gray-400"> / {predios.length}</span>
+          </p>
+          <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            {predios.length > 0 && totalSincronizados === predios.length
+              ? "100% Sincronizado"
+              : `${predios.length - totalSincronizados} pendientes`}
+          </span>
         </div>
       </div>
 

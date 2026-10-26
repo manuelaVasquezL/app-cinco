@@ -60,6 +60,15 @@ class MappingPredioService:
             created_by=actor_user,
         )
         predio.save()
+
+        def _sync_after_commit():
+            try:
+                from .sharepoint_mapping_service import SharePointMappingService
+                SharePointMappingService.sync_predio_to_sharepoint(predio)
+            except Exception:
+                pass
+
+        transaction.on_commit(_sync_after_commit)
         return predio
 
     @staticmethod
