@@ -174,7 +174,7 @@ export const MappingPrediosView: React.FC = () => {
                 {predioEditando ? "Modificar Datos del Predio" : "Formulario de Mapping"}
               </h2>
               <p className="text-xs text-gray-500">
-                Registra la información sin bloqueos por direcciones duplicadas.
+                Registra la información del mapping.
               </p>
             </div>
             {predioEditando && (
