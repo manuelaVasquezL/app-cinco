@@ -4,6 +4,7 @@ import {
   EmpleadoPerfilItem,
   EmpleadoPerfilCompleto,
   PersonalFilterParams,
+  PersonalEstadisticas,
   EstadoEmpleado,
 } from "@/types/empleado";
 import { personalService, SupervisorOption } from "../services/personalService";
@@ -19,6 +20,10 @@ interface PersonalState {
   isDetailLoading: boolean;
   detailError: string | null;
 
+  // Métricas globales
+  estadisticas: PersonalEstadisticas | null;
+  fetchEstadisticas: () => Promise<void>;
+
   // Catálogos auxiliares
   supervisores: SupervisorOption[];
   isLoadingSupervisores: boolean;
@@ -31,7 +36,9 @@ interface PersonalState {
   fetchEmpleadoDetail: (id: number) => Promise<void>;
   fetchSupervisores: () => Promise<void>;
   setFilter: <K extends keyof PersonalFilterParams>(key: K, value: PersonalFilterParams[K]) => void;
-  setEstadoTab: (estado: EstadoEmpleado | 'TODOS') => void;
+  setEstadoTab: (estado: EstadoEmpleado | 'TODOS' | 'PERIODO_PRUEBA') => void;
+  soloPeriodoPrueba: boolean;
+  setSoloPeriodoPrueba: (val: boolean) => void;
   resetFilters: () => void;
   clearSelected: () => void;
   updateLocalItem: (updated: EmpleadoPerfilItem | EmpleadoPerfilCompleto) => void;
@@ -55,10 +62,21 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   isDetailLoading: false,
   detailError: null,
 
+  estadisticas: null,
   supervisores: [],
   isLoadingSupervisores: false,
 
   filters: { ...initialFilters },
+  soloPeriodoPrueba: false,
+
+  fetchEstadisticas: async () => {
+    try {
+      const stats = await personalService.getEstadisticas();
+      set({ estadisticas: stats });
+    } catch {
+      // fallback silently
+    }
+  },
 
   fetchEmpleados: async () => {
     set({ isLoading: true, error: null });
@@ -66,14 +84,20 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
       const { filters } = get();
       const cleanFilters: PersonalFilterParams = { ...filters };
       if (cleanFilters.estado === "TODOS") {
-        delete cleanFilters.estado;
+        cleanFilters.estado = "all";
       }
       const data = await personalService.getEmpleados(cleanFilters);
       set({ items: data, isLoading: false });
+      // refrescar métricas en segundo plano
+      get().fetchEstadisticas();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al cargar la base de personal";
       set({ error: msg, isLoading: false });
     }
+  },
+
+  setSoloPeriodoPrueba: (val: boolean) => {
+    get().setEstadoTab(val ? 'PERIODO_PRUEBA' : 'ACTIVO');
   },
 
   fetchEmpleadoDetail: async (id: number) => {
@@ -107,18 +131,32 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   },
 
   setEstadoTab: (estado) => {
-    set((state) => ({
-      filters: {
-        ...state.filters,
-        estado: estado === "TODOS" ? undefined : estado,
-      },
-    }));
+    if (estado === 'PERIODO_PRUEBA') {
+      set((state) => ({
+        soloPeriodoPrueba: true,
+        filters: {
+          ...state.filters,
+          estado: 'ACTIVO',
+          periodo_prueba: true,
+        },
+      }));
+    } else {
+      set((state) => ({
+        soloPeriodoPrueba: false,
+        filters: {
+          ...state.filters,
+          estado: estado === 'TODOS' ? 'all' : estado,
+          periodo_prueba: undefined,
+        },
+      }));
+    }
     get().fetchEmpleados();
   },
 
   resetFilters: () => {
-    set({ filters: { ...initialFilters } });
+    set({ filters: { ...initialFilters }, soloPeriodoPrueba: false });
     get().fetchEmpleados();
+    get().fetchEstadisticas();
   },
 
   clearSelected: () => {

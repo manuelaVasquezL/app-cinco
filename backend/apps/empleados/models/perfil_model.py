@@ -79,3 +79,15 @@ class EmpleadoPerfil(models.Model):
             fin = self.laboral.fecha_egreso or timezone.now().date()
             return max(0, (fin - self.laboral.fecha_ingreso).days)
         return 0
+
+    @property
+    def dias_para_periodo_prueba(self):
+        if hasattr(self, 'laboral') and self.laboral:
+            return self.laboral.dias_para_periodo_prueba
+        return None
+
+    @property
+    def en_periodo_prueba(self):
+        if hasattr(self, 'laboral') and self.laboral:
+            return self.laboral.en_periodo_prueba
+        return False

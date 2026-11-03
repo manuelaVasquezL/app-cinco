@@ -1,7 +1,7 @@
 // src/modules/infraestructura/personal/components/PersonalTable.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { SortingState } from "@tanstack/react-table";
 import { Download } from "lucide-react";
 import { DataTable } from "@/components/common/DataTable";
@@ -46,6 +46,11 @@ export const PersonalTable: React.FC<Props> = ({
     PERSONAL_TABLE_CONFIG.defaultPageSize
   );
   const [visibleRows, setVisibleRows] = useState<EmpleadoPerfilItem[]>([]);
+
+  // Resetear paginación a la primera página cuando cambie la lista de elementos
+  useEffect(() => {
+    setPageIndex(0);
+  }, [items]);
 
   const openAction = (
     emp: EmpleadoPerfilItem,

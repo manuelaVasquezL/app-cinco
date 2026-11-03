@@ -47,6 +47,33 @@ class EmpleadoWorkflowService:
             )
 
     @staticmethod
+    def calcular_seis_meses_despues(fecha):
+        """
+        Regla Legacy PHP: calcularSeisMesesDespues() (Líneas 7600-7619 de infraestructura_cinco_sas.php)
+        Calcula la fecha de finalización sumando exactamente 6 meses a la fecha inicial,
+        respetando el ajuste al último día del mes cuando el mes destino tiene menos días.
+        """
+        if not fecha:
+            return None
+        if isinstance(fecha, str):
+            try:
+                from datetime import datetime
+                fecha = datetime.strptime(str(fecha)[:10], '%Y-%m-%d').date()
+            except Exception:
+                return None
+
+        import calendar
+        from datetime import date
+        year = fecha.year
+        month = fecha.month + 6
+        if month > 12:
+            year += 1
+            month -= 12
+        max_days = calendar.monthrange(year, month)[1]
+        day = min(fecha.day, max_days)
+        return date(year, month, day)
+
+    @staticmethod
     def normalizar_numero_cuenta(nro: str) -> str:
         """
         Regla Legacy PHP: normalizeCuenta() (Líneas 283-296 de infraestructura_cinco_sas.php)
@@ -107,10 +134,14 @@ class EmpleadoWorkflowService:
     ) -> EmpleadoAuditoriaLog:
         """
         Registra una traza de auditoría transaccional en empleados_auditoria_log.
+        Fallback al usuario del perfil si no se provee operador explícito.
         """
+        user_to_log = usuario or getattr(empleado, 'user', None)
+        if not user_to_log:
+            return None
         return EmpleadoAuditoriaLog.objects.create(
             empleado=empleado,
-            usuario=usuario,
+            usuario=user_to_log,
             accion=accion,
             tabla_afectada=tabla_afectada,
             datos_anteriores=datos_anteriores,
@@ -188,8 +219,18 @@ class EmpleadoWorkflowService:
             datos_adicionales=data.get('datos_adicionales'),
         )
 
-        # 3. Laboral en etapa de formación
-        EmpleadoLaboral.objects.create(
+        # 3. Laboral en etapa de formación (con cálculo automático de 6 meses para etapas SENA - Regla 2.8)
+        p_lect_inicio = laboral_data.get('practica_lectiva_inicio')
+        p_lect_fin = laboral_data.get('practica_lectiva_fin')
+        if p_lect_inicio and not p_lect_fin:
+            p_lect_fin = cls.calcular_seis_meses_despues(p_lect_inicio)
+
+        p_prod_inicio = laboral_data.get('practica_productiva_inicio')
+        p_prod_fin = laboral_data.get('practica_productiva_fin')
+        if p_prod_inicio and not p_prod_fin:
+            p_prod_fin = cls.calcular_seis_meses_despues(p_prod_inicio)
+
+        lab_creado = EmpleadoLaboral.objects.create(
             empleado=perfil,
             codigo_sap=laboral_data.get('codigo_sap'),
             sede=laboral_data.get('sede') or laboral_data.get('ciudad_operacion') or 'CALI',
@@ -208,10 +249,10 @@ class EmpleadoWorkflowService:
             nivel_estudio=laboral_data.get('nivel_estudio'),
             fecha_ingreso=fecha_ingreso,
             etapa_induccion='EN_FORMACION',
-            practica_lectiva_inicio=laboral_data.get('practica_lectiva_inicio'),
-            practica_lectiva_fin=laboral_data.get('practica_lectiva_fin'),
-            practica_productiva_inicio=laboral_data.get('practica_productiva_inicio'),
-            practica_productiva_fin=laboral_data.get('practica_productiva_fin'),
+            practica_lectiva_inicio=p_lect_inicio,
+            practica_lectiva_fin=p_lect_fin,
+            practica_productiva_inicio=p_prod_inicio,
+            practica_productiva_fin=p_prod_fin,
         )
 
         # 4. Satélites iniciales opcionales
@@ -283,6 +324,18 @@ class EmpleadoWorkflowService:
             ip_origen=ip_address
         )
 
+
+        # 6. Auto-herencia de cuadrilla si se crea como auxiliar asignado a cuadrilla operativa (Regla Legacy 2.6)
+        if (
+            'AUXILIAR' in (lab_creado.cargo or '').upper()
+            and lab_creado.movil
+            and 'ASIGNAR' not in lab_creado.movil.upper()
+        ):
+            cls.sincronizar_herencia_auxiliar_desde_tecnico(
+                auxiliar_perfil=perfil,
+                user_operator=user_creator,
+                ip_address=ip_address
+            )
         return perfil
 
     @classmethod
@@ -417,43 +470,173 @@ class EmpleadoWorkflowService:
 
     @classmethod
     @transaction.atomic
+    def sincronizar_herencia_auxiliar_desde_tecnico(
+        cls,
+        auxiliar_perfil: EmpleadoPerfil,
+        user_operator: User = None,
+        ip_address: str = None
+    ) -> dict:
+        """
+        Replica la regla legacy de auto-herencia de cuadrilla para auxiliares
+        (Líneas 3139-3151 de infraestructura_cinco_sas.php):
+        Cuando un AUXILIAR se asigna a un móvil operativo que no contiene 'SIN ASIGNAR',
+        se busca el TÉCNICO activo de ese móvil y se copian automáticamente:
+        - supervisor
+        - área
+        - carpeta
+        - medio_transporte (desde EmpleadoMovilidad)
+        """
+        lab_aux = EmpleadoLaboral.objects.filter(empleado=auxiliar_perfil).first()
+        if not lab_aux or 'AUXILIAR' not in (lab_aux.cargo or '').upper():
+            return {'heredado': False}
+
+        movil_actual = (lab_aux.movil or '').strip()
+        if not movil_actual or 'ASIGNAR' in movil_actual.upper() or 'FUERA DE OPERACION' in movil_actual.upper():
+            return {'heredado': False}
+
+        # Buscar técnico activo en la misma cuadrilla/móvil
+        tecnico_lab = EmpleadoLaboral.objects.filter(
+            movil=movil_actual,
+            cargo__icontains='TECNICO',
+            empleado__estado='ACTIVO'
+        ).exclude(empleado=auxiliar_perfil).select_related('supervisor', 'empleado', 'empleado__movilidad').first()
+
+        if not tecnico_lab:
+            return {'heredado': False}
+
+        cambios_lab = {}
+        lab_antes = {
+            'supervisor_id': lab_aux.supervisor_id,
+            'area': lab_aux.area,
+            'carpeta': lab_aux.carpeta,
+        }
+
+        if lab_aux.supervisor_id != tecnico_lab.supervisor_id:
+            lab_aux.supervisor = tecnico_lab.supervisor
+            cambios_lab['supervisor'] = tecnico_lab.supervisor_id
+
+        if lab_aux.area != tecnico_lab.area:
+            lab_aux.area = tecnico_lab.area
+            cambios_lab['area'] = tecnico_lab.area
+
+        if lab_aux.carpeta != tecnico_lab.carpeta:
+            lab_aux.carpeta = tecnico_lab.carpeta
+            cambios_lab['carpeta'] = tecnico_lab.carpeta
+
+        if cambios_lab:
+            lab_aux.save(update_fields=list(cambios_lab.keys()))
+
+        # Sincronizar medio_transporte si el técnico lo tiene asignado
+        tec_mov = getattr(tecnico_lab.empleado, 'movilidad', None)
+        cambios_mov = {}
+        mov_antes = None
+        if tec_mov and tec_mov.medio_transporte:
+            aux_mov, _ = EmpleadoMovilidad.objects.get_or_create(empleado=auxiliar_perfil)
+            if aux_mov.medio_transporte != tec_mov.medio_transporte:
+                mov_antes = aux_mov.medio_transporte
+                aux_mov.medio_transporte = tec_mov.medio_transporte
+                aux_mov.save(update_fields=['medio_transporte'])
+                cambios_mov['medio_transporte'] = tec_mov.medio_transporte
+
+        # Auditoría si hubo cambios heredados
+        if cambios_lab or cambios_mov:
+            datos_ant = {**lab_antes}
+            if mov_antes is not None:
+                datos_ant['medio_transporte'] = mov_antes
+
+            datos_nue = {
+                'supervisor_id': lab_aux.supervisor_id,
+                'area': lab_aux.area,
+                'carpeta': lab_aux.carpeta,
+                'tecnico_origen': tecnico_lab.empleado.nombre_completo,
+            }
+            if 'medio_transporte' in cambios_mov:
+                datos_nue['medio_transporte'] = cambios_mov['medio_transporte']
+
+            cls.registrar_auditoria(
+                empleado=auxiliar_perfil,
+                usuario=user_operator,
+                accion='HERENCIA_CUADRILLA_AUXILIAR',
+                tabla_afectada='empleados_laboral',
+                datos_anteriores=datos_ant,
+                datos_nuevos=datos_nue,
+                ip_origen=ip_address
+            )
+
+        return {
+            'heredado': True,
+            'tecnico_nombre': tecnico_lab.empleado.nombre_completo,
+            'supervisor_id': lab_aux.supervisor_id,
+            'supervisor_nombre': lab_aux.supervisor.nombre_completo if lab_aux.supervisor else None,
+            'area': lab_aux.area,
+            'carpeta': lab_aux.carpeta,
+            'medio_transporte': tec_mov.medio_transporte if tec_mov else None,
+        }
+
+    @classmethod
+    @transaction.atomic
     def sincronizar_cuadrilla_tecnico_auxiliar(
         cls,
         tecnico_perfil: EmpleadoPerfil,
         nueva_movil: str,
+        movil_anterior: str = None,
         user_operator: User = None,
         ip_address: str = None
     ):
         """
         Replica la regla legacy de cuadrillas (Líneas 3050-3158 de infraestructura_cinco_sas.php):
-        - Si el técnico cambia de móvil y no es 'SIN ASIGNAR', los auxiliares en esa móvil
-          heredan el supervisor, área y carpeta del técnico.
-        - Si el técnico pasa a '1 - SIN ASIGNAR', los auxiliares en la móvil anterior se desvinculan.
+        - Si el técnico se actualiza en un móvil operativo válido (no 'SIN ASIGNAR'):
+          Los auxiliares activos en ese móvil heredan supervisor, área, carpeta y transporte.
+        - Si el técnico sale de su móvil anterior (cambio de móvil o desasignación) y NO
+          quedan más técnicos activos en el móvil anterior:
+          Los auxiliares en el móvil anterior se desvinculan a '1 - SIN ASIGNAR'.
         """
-        laboral_tec = tecnico_perfil.laboral
-        if laboral_tec.cargo != 'TECNICO':
+        laboral_tec = EmpleadoLaboral.objects.filter(empleado=tecnico_perfil).first()
+        if not laboral_tec or 'TECNICO' not in (laboral_tec.cargo or '').upper():
             return
 
-        movil_ant = laboral_tec.movil
+        nueva_movil_str = (nueva_movil or '').strip()
+        movil_ant_str = (movil_anterior or '').strip()
 
-        if nueva_movil and "ASIGNAR" not in nueva_movil.upper():
+        # 1. Si nueva_movil es operativa (no 'SIN ASIGNAR'), sincronizar auxiliares de esa cuadrilla
+        if nueva_movil_str and "ASIGNAR" not in nueva_movil_str.upper() and "FUERA DE OPERACION" not in nueva_movil_str.upper():
             auxiliares = EmpleadoLaboral.objects.filter(
-                movil=nueva_movil,
-                cargo='AUXILIAR',
+                movil=nueva_movil_str,
+                cargo__icontains='AUXILIAR',
                 empleado__estado='ACTIVO'
-            )
+            ).exclude(empleado=tecnico_perfil)
+
+            tec_mov = getattr(tecnico_perfil, 'movilidad', None)
+            transporte_tec = tec_mov.medio_transporte if tec_mov else None
+
             for aux_lab in auxiliares:
                 datos_antes = {
                     'supervisor_id': aux_lab.supervisor_id,
                     'area': aux_lab.area,
                     'carpeta': aux_lab.carpeta,
                 }
-                aux_lab.supervisor = laboral_tec.supervisor
-                aux_lab.area = laboral_tec.area
-                aux_lab.carpeta = laboral_tec.carpeta
-                aux_lab.save()
+                cambio = False
+                if aux_lab.supervisor_id != laboral_tec.supervisor_id:
+                    aux_lab.supervisor = laboral_tec.supervisor
+                    cambio = True
+                if aux_lab.area != laboral_tec.area:
+                    aux_lab.area = laboral_tec.area
+                    cambio = True
+                if aux_lab.carpeta != laboral_tec.carpeta:
+                    aux_lab.carpeta = laboral_tec.carpeta
+                    cambio = True
 
-                if user_operator:
+                if cambio:
+                    aux_lab.save(update_fields=['supervisor', 'area', 'carpeta'])
+
+                # Sincronizar transporte en movilidad
+                if transporte_tec:
+                    aux_mov, _ = EmpleadoMovilidad.objects.get_or_create(empleado=aux_lab.empleado)
+                    if aux_mov.medio_transporte != transporte_tec:
+                        aux_mov.medio_transporte = transporte_tec
+                        aux_mov.save(update_fields=['medio_transporte'])
+
+                if cambio and user_operator:
                     cls.registrar_auditoria(
                         empleado=aux_lab.empleado,
                         usuario=user_operator,
@@ -464,31 +647,40 @@ class EmpleadoWorkflowService:
                             'supervisor_id': aux_lab.supervisor_id,
                             'area': aux_lab.area,
                             'carpeta': aux_lab.carpeta,
+                            'tecnico': tecnico_perfil.nombre_completo,
                         },
                         ip_origen=ip_address
                     )
 
-        elif "ASIGNAR" in nueva_movil.upper() and movil_ant:
-            # Si el técnico se desasigna, desasignar al auxiliar vinculado
-            auxiliares = EmpleadoLaboral.objects.filter(
-                movil=movil_ant,
-                cargo='AUXILIAR',
+        # 2. Si el técnico dejó un móvil anterior que no sea 'SIN ASIGNAR'
+        if movil_ant_str and movil_ant_str != nueva_movil_str and "ASIGNAR" not in movil_ant_str.upper() and "FUERA DE OPERACION" not in movil_ant_str.upper():
+            quedan_tecnicos = EmpleadoLaboral.objects.filter(
+                movil=movil_ant_str,
+                cargo__icontains='TECNICO',
                 empleado__estado='ACTIVO'
-            )
-            for aux_lab in auxiliares:
-                aux_lab.movil = '1 - SIN ASIGNAR'
-                aux_lab.save()
+            ).exclude(empleado=tecnico_perfil).exists()
 
-                if user_operator:
-                    cls.registrar_auditoria(
-                        empleado=aux_lab.empleado,
-                        usuario=user_operator,
-                        accion='DESVINCULACION_CUADRILLA',
-                        tabla_afectada='empleados_laboral',
-                        datos_anteriores={'movil': movil_ant},
-                        datos_nuevos={'movil': '1 - SIN ASIGNAR'},
-                        ip_origen=ip_address
-                    )
+            if not quedan_tecnicos:
+                auxiliares_huerfanos = EmpleadoLaboral.objects.filter(
+                    movil=movil_ant_str,
+                    cargo__icontains='AUXILIAR',
+                    empleado__estado='ACTIVO'
+                ).exclude(empleado=tecnico_perfil)
+
+                for aux_lab in auxiliares_huerfanos:
+                    aux_lab.movil = '1 - SIN ASIGNAR'
+                    aux_lab.save(update_fields=['movil'])
+
+                    if user_operator:
+                        cls.registrar_auditoria(
+                            empleado=aux_lab.empleado,
+                            usuario=user_operator,
+                            accion='DESVINCULACION_CUADRILLA',
+                            tabla_afectada='empleados_laboral',
+                            datos_anteriores={'movil': movil_ant_str},
+                            datos_nuevos={'movil': '1 - SIN ASIGNAR'},
+                            ip_origen=ip_address
+                        )
 
     @classmethod
     @transaction.atomic
@@ -502,15 +694,19 @@ class EmpleadoWorkflowService:
         ip_address: str = None
     ) -> EmpleadoPerfil:
         """
-        Equivale a send_desactivar_empleado (Líneas 622-823 de infraestructura_cinco_sas.php).
+        Equivale a send_desactivar_empleado (Lineas 622-823 de infraestructura_cinco_sas.php).
         1. Estado a INACTIVO y revoca accesos en auth_user.
         2. Registra fecha de egreso, motivo y motivo real.
-        3. Pasa móvil a 'Z - FUERA DE OPERACION'.
+        3. Pasa movil a 'Z - FUERA DE OPERACION'.
         4. Libera la placa vehicular asignada.
+        5. Regla de cuadrillas TIRAN: Si el tecnico retirado deja la cuadrilla sin ningun tecnico activo,
+           todos los auxiliares y no-tecnicos activos en esa movil pasan automaticamente a '1 - SIN ASIGNAR'.
         """
         perfil = EmpleadoPerfil.objects.select_for_update().get(id=empleado_id)
         laboral = perfil.laboral
         movilidad, _ = EmpleadoMovilidad.objects.get_or_create(empleado=perfil)
+
+        movil_antes = laboral.movil or ''
 
         datos_antes = {
             'estado': perfil.estado,
@@ -519,22 +715,74 @@ class EmpleadoWorkflowService:
             'placa_vehiculo': movilidad.placa_vehiculo,
         }
 
-        # 1. Desactivación de cuenta e identidad
+        # 1. Desactivacion de cuenta e identidad
         perfil.estado = 'INACTIVO'
         perfil.user.is_active = False
         perfil.user.save()
         perfil.save()
 
-        # 2. Desactivación laboral
+        # 2. Desactivacion laboral
         laboral.fecha_egreso = fecha_egreso
         laboral.motivo_egreso = motivo
         laboral.motivo_egreso_real = motivo_real
         laboral.movil = 'Z - FUERA DE OPERACION'
         laboral.save()
 
-        # 3. Liberación de vehículo
+        # 3. Liberacion de vehiculo
         movilidad.placa_vehiculo = None
         movilidad.save()
+
+        # 4. Regla Legacy PHP: Desvinculacion automatica de cuadrilla (Lineas 667-687 de infraestructura_cinco_sas.php)
+        # Si el colaborador pertenecia a una cuadrilla operativa (tipo TIRAN o movil activa)
+        # y tras su retiro NO queda ningun otro TECNICO activo en dicha movil,
+        # los auxiliares/colaboradores no tecnicos activos en esa movil se desvinculan a '1 - SIN ASIGNAR'.
+        auxiliares_desvinculados = []
+        if movil_antes and (
+            'TIRAN' in movil_antes.upper()
+            or ('ASIGNAR' not in movil_antes.upper() and 'FUERA' not in movil_antes.upper())
+        ):
+            quedan_tecnicos_activos = EmpleadoLaboral.objects.filter(
+                movil=movil_antes,
+                cargo='TECNICO',
+                empleado__estado='ACTIVO'
+            ).exists()
+
+            if not quedan_tecnicos_activos:
+                auxiliares_afectados = EmpleadoLaboral.objects.select_for_update().filter(
+                    movil=movil_antes,
+                    empleado__estado='ACTIVO'
+                ).exclude(cargo='TECNICO')
+
+                for aux_lab in auxiliares_afectados:
+                    aux_perfil = aux_lab.empleado
+                    datos_antes_aux = {
+                        'movil': aux_lab.movil,
+                    }
+                    aux_lab.movil = '1 - SIN ASIGNAR'
+                    aux_lab.save()
+
+                    auxiliares_desvinculados.append({
+                        'id': aux_perfil.id,
+                        'nombre_completo': aux_perfil.nombre_completo,
+                        'numero_documento': aux_perfil.numero_documento,
+                        'cargo': aux_lab.cargo,
+                    })
+
+                    if user_operator:
+                        cls.registrar_auditoria(
+                            empleado=aux_perfil,
+                            usuario=user_operator,
+                            accion='DESVINCULACION_CUADRILLA_AUTOMATICA',
+                            tabla_afectada='empleados_laboral',
+                            datos_anteriores=datos_antes_aux,
+                            datos_nuevos={
+                                'movil': '1 - SIN ASIGNAR',
+                                'motivo': f'Desvinculacion automatica por retiro del tecnico de la cuadrilla {movil_antes} ({perfil.nombre_completo})',
+                            },
+                            ip_origen=ip_address
+                        )
+
+        perfil.auxiliares_desvinculados = auxiliares_desvinculados
 
         datos_nuevos = {
             'estado': 'INACTIVO',
@@ -544,6 +792,7 @@ class EmpleadoWorkflowService:
             'motivo_real': motivo_real,
             'movil': 'Z - FUERA DE OPERACION',
             'placa_vehiculo': None,
+            'auxiliares_desvinculados_count': len(auxiliares_desvinculados),
         }
 
         if user_operator:
@@ -560,11 +809,46 @@ class EmpleadoWorkflowService:
         return perfil
 
     @classmethod
+    def obtener_movil_previa_desactivacion(cls, empleado_id: int) -> str:
+        """
+        Consulta en el historial de auditoría el último móvil que tuvo el colaborador
+        antes de ser desactivado (Equivale a Líneas 845-851 de infraestructura_cinco_sas.php).
+        """
+        # 1. Buscar en el log de DESACTIVACION más reciente
+        log_desactivacion = EmpleadoAuditoriaLog.objects.filter(
+            empleado_id=empleado_id,
+            accion='DESACTIVACION'
+        ).order_by('-created_at').first()
+
+        if log_desactivacion and log_desactivacion.datos_anteriores:
+            movil_ant = log_desactivacion.datos_anteriores.get('movil')
+            if movil_ant and 'FUERA DE OPERACION' not in str(movil_ant).upper():
+                return str(movil_ant).strip()
+
+        # 2. Si no está en el log de desactivación, buscar en logs históricos previos
+        logs_anteriores = EmpleadoAuditoriaLog.objects.filter(
+            empleado_id=empleado_id
+        ).order_by('-created_at')
+
+        for log in logs_anteriores:
+            if log.datos_anteriores and 'movil' in log.datos_anteriores:
+                m = log.datos_anteriores.get('movil')
+                if m and 'FUERA' not in str(m).upper() and str(m).strip():
+                    return str(m).strip()
+            if log.datos_nuevos and 'movil' in log.datos_nuevos:
+                m = log.datos_nuevos.get('movil')
+                if m and 'FUERA' not in str(m).upper() and str(m).strip():
+                    return str(m).strip()
+
+        return '1 - SIN ASIGNAR'
+
+    @classmethod
     @transaction.atomic
     def reactivar_empleado(
         cls,
         empleado_id: int,
-        movil_inicial: str = '1 - SIN ASIGNAR',
+        movil_inicial: str = None,
+        observaciones: str = '',
         user_operator: User = None,
         ip_address: str = None
     ) -> EmpleadoPerfil:
@@ -572,7 +856,8 @@ class EmpleadoWorkflowService:
         Equivale a reactivar (Líneas 824-981 de infraestructura_cinco_sas.php).
         1. Estado a ACTIVO y reactiva auth_user.
         2. Limpia fecha y motivo de egreso.
-        3. Restaura móvil inicial o '1 - SIN ASIGNAR'.
+        3. Recupera el móvil previo desde el historial de auditoría si no se especifica uno explícito (Regla Legacy 2.7).
+        4. Auto-herencia o sincronización de cuadrilla si aplica.
         """
         perfil = EmpleadoPerfil.objects.select_for_update().get(id=empleado_id)
         laboral = perfil.laboral
@@ -585,19 +870,56 @@ class EmpleadoWorkflowService:
         laboral.fecha_egreso = None
         laboral.motivo_egreso = None
         laboral.motivo_egreso_real = None
-        laboral.movil = movil_inicial or '1 - SIN ASIGNAR'
+
+        # Si no se pasó un móvil o está vacío / None, recuperar del historial (Regla Legacy 2.7)
+        if not movil_inicial or not str(movil_inicial).strip():
+            movil_final = cls.obtener_movil_previa_desactivacion(empleado_id)
+        else:
+            movil_final = str(movil_inicial).strip()
+
+        laboral.movil = movil_final or '1 - SIN ASIGNAR'
         laboral.save()
 
-        if user_operator:
-            cls.registrar_auditoria(
-                empleado=perfil,
-                usuario=user_operator,
-                accion='REACTIVACION',
-                tabla_afectada='empleados_perfil',
-                datos_nuevos={'estado': 'ACTIVO', 'movil': laboral.movil},
-                ip_origen=ip_address
-            )
+        # Si el reactivado es auxiliar y el móvil es una cuadrilla operativa con técnico activo, auto-heredar
+        if 'AUXILIAR' in (laboral.cargo or '').upper() and laboral.movil and 'ASIGNAR' not in laboral.movil.upper():
+            try:
+                cls.sincronizar_herencia_auxiliar_desde_tecnico(
+                    auxiliar_perfil=perfil,
+                    user_operator=user_operator,
+                    ip_address=ip_address
+                )
+            except Exception:
+                pass
+        elif 'TECNICO' in (laboral.cargo or '').upper() and laboral.movil and 'ASIGNAR' not in laboral.movil.upper():
+            try:
+                cls.sincronizar_cuadrilla_tecnico_auxiliar(
+                    tecnico_perfil=perfil,
+                    nueva_movil=laboral.movil,
+                    movil_anterior='Z - FUERA DE OPERACION',
+                    user_operator=user_operator,
+                    ip_address=ip_address
+                )
+            except Exception:
+                pass
 
+        datos_nuevos = {
+            'estado': 'ACTIVO',
+            'movil': laboral.movil,
+        }
+        if observaciones:
+            datos_nuevos['observaciones'] = observaciones
+
+        cls.registrar_auditoria(
+            empleado=perfil,
+            usuario=user_operator,
+            accion='REACTIVACION',
+            tabla_afectada='empleados_perfil',
+            datos_anteriores={'estado': 'INACTIVO', 'movil': 'Z - FUERA DE OPERACION'},
+            datos_nuevos=datos_nuevos,
+            ip_origen=ip_address
+        )
+
+        perfil.movil_restaurado = laboral.movil
         return perfil
 
     @classmethod

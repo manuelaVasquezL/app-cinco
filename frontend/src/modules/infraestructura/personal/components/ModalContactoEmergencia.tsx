@@ -22,7 +22,15 @@ const PARENTESCOS = [
   { value: "CONYUGE", label: "Cónyuge / Pareja" },
   { value: "HIJO", label: "Hijo / Hija" },
   { value: "HERMANO", label: "Hermano / Hermana" },
-  { value: "OTRO", label: "Otro / Familiar" },
+  { value: "ABUELO", label: "Abuelo / Abuela" },
+  { value: "NIETO", label: "Nieto / Nieta" },
+  { value: "TIO", label: "Tío / Tía" },
+  { value: "PRIMO", label: "Primo / Prima" },
+  { value: "SOBRINO", label: "Sobrino / Sobrina" },
+  { value: "CUÑADO", label: "Cuñado / Cuñada" },
+  { value: "SUEGRO", label: "Suegro / Suegra" },
+  { value: "AMIGO", label: "Amigo / Amiga" },
+  { value: "CONOCIDO", label: "Conocido / Conocida" },
 ];
 
 export const ModalContactoEmergencia: React.FC<Props> = ({
@@ -129,14 +137,6 @@ export const ModalContactoEmergencia: React.FC<Props> = ({
           >
             <X className="h-5 w-5" />
           </button>
-        </div>
-
-        {/* Notice */}
-        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-xs text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
-          <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
-          <span>
-            <strong>Red de Apoyo:</strong> Esta persona será contactada en primera instancia ante cualquier situación de urgencia o eventualidad médica laboral.
-          </span>
         </div>
 
         {/* Form */}

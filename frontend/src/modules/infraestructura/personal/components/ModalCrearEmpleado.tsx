@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, UserPlus, AlertCircle, Loader2 } from "lucide-react";
+import { X, UserPlus, AlertCircle, Loader2, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { personalService } from "../services/personalService";
 import { usePersonalStore } from "../store/usePersonalStore";
@@ -11,6 +11,25 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+}
+
+function calcularSeisMesesDespues(fechaIso: string): string {
+  if (!fechaIso) return "";
+  const fechaInicio = new Date(fechaIso + "T00:00:00");
+  if (isNaN(fechaInicio.getTime())) return "";
+
+  const fechaFin = new Date(fechaInicio);
+  fechaFin.setMonth(fechaFin.getMonth() + 6);
+
+  if (fechaFin.getDate() !== fechaInicio.getDate()) {
+    fechaFin.setDate(0);
+  }
+
+  const año = fechaFin.getFullYear();
+  const mes = String(fechaFin.getMonth() + 1).padStart(2, "0");
+  const dia = String(fechaFin.getDate()).padStart(2, "0");
+
+  return `${año}-${mes}-${dia}`;
 }
 
 export const ModalCrearEmpleado: React.FC<Props> = ({
@@ -28,6 +47,10 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
   const [cargo, setCargo] = useState("");
   const [ciudadOperacion, setCiudadOperacion] = useState("CALI");
   const [tipoContrato, setTipoContrato] = useState("OBRA_LABOR");
+  const [practicaLectivaInicio, setPracticaLectivaInicio] = useState("");
+  const [practicaLectivaFin, setPracticaLectivaFin] = useState("");
+  const [practicaProductivaInicio, setPracticaProductivaInicio] = useState("");
+  const [practicaProductivaFin, setPracticaProductivaFin] = useState("");
   const [fechaIngreso, setFechaIngreso] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -65,6 +88,10 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
           tipo_contrato: tipoContrato,
           fecha_ingreso: fechaIngreso,
           etapa_induccion: "EN_FORMACION",
+          practica_lectiva_inicio: practicaLectivaInicio || undefined,
+          practica_lectiva_fin: practicaLectivaFin || undefined,
+          practica_productiva_inicio: practicaProductivaInicio || undefined,
+          practica_productiva_fin: practicaProductivaFin || undefined,
         },
       });
 
@@ -258,6 +285,77 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
               </select>
             </div>
           </div>
+
+          {tipoContrato === "APRENDIZAJE" && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3.5 space-y-3 dark:border-blue-900/40 dark:bg-blue-950/20">
+              <div className="flex items-center gap-2">
+                <GraduationCap className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-900 dark:text-blue-300">
+                  Etapas Aprendiz SENA (Cálculo Automático 6 Meses - Regla Legacy 2.8)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-2xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Inicio Etapa Lectiva
+                  </label>
+                  <input
+                    type="date"
+                    value={practicaLectivaInicio}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPracticaLectivaInicio(val);
+                      const fin = calcularSeisMesesDespues(val);
+                      if (fin) setPracticaLectivaFin(fin);
+                    }}
+                    className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-2xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Fin Etapa Lectiva (+6 meses)
+                  </label>
+                  <input
+                    type="date"
+                    value={practicaLectivaFin}
+                    onChange={(e) => setPracticaLectivaFin(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-2xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Inicio Etapa Productiva
+                  </label>
+                  <input
+                    type="date"
+                    value={practicaProductivaInicio}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPracticaProductivaInicio(val);
+                      const fin = calcularSeisMesesDespues(val);
+                      if (fin) setPracticaProductivaFin(fin);
+                    }}
+                    className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-2xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Fin Etapa Productiva (+6 meses)
+                  </label>
+                  <input
+                    type="date"
+                    value={practicaProductivaFin}
+                    onChange={(e) => setPracticaProductivaFin(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">

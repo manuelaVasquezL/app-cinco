@@ -1,7 +1,26 @@
 from datetime import date
 from decimal import Decimal
-from unittest import TestCase
+from django.test import TestCase
 from unittest.mock import MagicMock, patch
+
+class BaseEmpleadoTestCase(TestCase):
+    """
+    Clase base para pruebas unitarias del módulo de empleados.
+    Limpia automáticamente cualquier usuario y perfil de prueba al finalizar cada test
+    para garantizar que la base de datos no quede contaminada con registros efímeros.
+    """
+    def tearDown(self):
+        super().tearDown()
+        try:
+            from django.contrib.auth.models import User
+            from apps.empleados.models import EmpleadoPerfil
+            test_users = User.objects.exclude(username__regex=r'^[0-9]+$').filter(is_superuser=False, is_staff=False)
+            if test_users.exists():
+                EmpleadoPerfil.objects.filter(user__in=test_users).delete()
+                test_users.delete()
+        except Exception:
+            pass
+
 
 from rest_framework.parsers import FormParser, JSONParser
 from rest_framework.request import Request
@@ -11,7 +30,7 @@ from apps.empleados.services.empleado_service import EmpleadoService
 from apps.empleados.views.empleado_view import EmpleadoViewSet
 
 
-class EmpleadoServiceTests(TestCase):
+class EmpleadoServiceTests(BaseEmpleadoTestCase):
     def test_eliminar_hard_delete_requires_superuser(self):
         instance = MagicMock()
         actor = MagicMock(is_authenticated=True, is_superuser=False)
@@ -329,7 +348,7 @@ class EmpleadoServiceTests(TestCase):
         self.assertEqual(result["context"]["salario"], Decimal("4000000"))
 
 
-class EmpleadoViewSetTests(TestCase):
+class EmpleadoViewSetTests(BaseEmpleadoTestCase):
     @patch("apps.empleados.views.empleado_view.EmpleadoService.generar_certificado_laboral")
     def test_certificado_laboral_retorna_pdf(self, generate_certificate):
         generate_certificate.return_value = {
@@ -424,7 +443,7 @@ class EmpleadoViewSetTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
 
-class EmpleadoContactoPerfilUpdateTests(TestCase):
+class EmpleadoContactoPerfilUpdateTests(BaseEmpleadoTestCase):
     def test_actualizar_contacto_con_campos_completos_y_auditoria(self):
         from rest_framework.test import APIRequestFactory
         from django.contrib.auth import get_user_model
@@ -493,7 +512,7 @@ class EmpleadoContactoPerfilUpdateTests(TestCase):
         user.delete()
 
 
-class EmpleadoCertificacionesSSTTests(TestCase):
+class EmpleadoCertificacionesSSTTests(BaseEmpleadoTestCase):
     def setUp(self):
         from django.contrib.auth import get_user_model
         from apps.empleados.models import EmpleadoPerfil, EmpleadoCertificacionesSST
@@ -602,7 +621,7 @@ class EmpleadoCertificacionesSSTTests(TestCase):
         self.assertIsNone(sst.certificado_alturas_url)
 
 
-class EmpleadoDotacionActivosTests(TestCase):
+class EmpleadoDotacionActivosTests(BaseEmpleadoTestCase):
     def test_actualizar_dotacion_con_guerrera_y_seriales(self):
         from rest_framework.test import APIRequestFactory
         from django.contrib.auth import get_user_model
@@ -664,7 +683,7 @@ class EmpleadoDotacionActivosTests(TestCase):
         self.assertEqual(log.datos_nuevos.get('talla_guerrera'), 'XL')
 
 
-class EmpleadoMovilidadTests(TestCase):
+class EmpleadoMovilidadTests(BaseEmpleadoTestCase):
     def test_actualizar_movilidad_perfil_y_auditoria(self):
         from rest_framework.test import APIRequestFactory
         from django.contrib.auth import get_user_model
@@ -763,7 +782,7 @@ class EmpleadoMovilidadTests(TestCase):
         self.assertIsNotNone(log_lib)
 
 
-class EmpleadoContactoEmergenciaTests(TestCase):
+class EmpleadoContactoEmergenciaTests(BaseEmpleadoTestCase):
     def test_gestionar_y_eliminar_contacto_emergencia(self):
         from rest_framework.test import APIRequestFactory
         from django.contrib.auth import get_user_model
@@ -838,3 +857,858 @@ class EmpleadoContactoEmergenciaTests(TestCase):
             accion='ELIMINACION_CONTACTO_EMERGENCIA'
         ).first()
         self.assertIsNotNone(log_del)
+
+
+class EmpleadoDesactivacionCuadrillaTiranTests(BaseEmpleadoTestCase):
+    def test_desactivar_tecnico_desvincula_auxiliares_de_cuadrilla_tiran(self):
+        """
+        Regla Legacy PHP: Lineas 667-687 de infraestructura_cinco_sas.php
+        Al desactivar a un TECNICO asignado a una movil TIRAN, si no queda ningun otro
+        tecnico activo en la cuadrilla, todos los auxiliares activos en esa movil
+        se desvinculan a '1 - SIN ASIGNAR' y se genera auditoria.
+        """
+        import uuid
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoAuditoriaLog
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+
+        User = get_user_model()
+        uid_op = uuid.uuid4().hex[:6]
+        user_op = User.objects.create_user(username=f'op_{uid_op}', email=f'op_{uid_op}@cinco.com', password='pwd')
+
+        movil_tiran = f'TIRAN_{uuid.uuid4().hex[:6]}'
+
+        # 1. Crear Tecnico 1 en cuadrilla TIRAN
+        uid_t1 = uuid.uuid4().hex[:6]
+        user_t1 = User.objects.create_user(username=f't1_{uid_t1}', email=f't1_{uid_t1}@cinco.com', password='pwd')
+        p_t1 = EmpleadoPerfil.objects.create(user=user_t1, numero_documento=f'91{uid_t1}', tipo_documento='CC', nombres='CARLOS', apellidos='TECNICO', estado='ACTIVO')
+        lab_t1 = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_t1, cargo='TECNICO', movil=movil_tiran, area='OPERACIONES', carpeta='OPERACIONES')
+
+        # 2. Crear Auxiliar en cuadrilla TIRAN
+        uid_a1 = uuid.uuid4().hex[:6]
+        user_a1 = User.objects.create_user(username=f'a1_{uid_a1}', email=f'a1_{uid_a1}@cinco.com', password='pwd')
+        p_a1 = EmpleadoPerfil.objects.create(user=user_a1, numero_documento=f'92{uid_a1}', tipo_documento='CC', nombres='PEDRO', apellidos='AUXILIAR', estado='ACTIVO')
+        lab_a1 = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_a1, cargo='AUXILIAR', movil=movil_tiran, area='OPERACIONES', carpeta='OPERACIONES')
+
+        # 3. Desactivar Tecnico 1
+        perfil_desc = EmpleadoWorkflowService.desactivar_empleado(
+            empleado_id=p_t1.id,
+            fecha_egreso='2026-10-30',
+            motivo='RENUNCIA VOLUNTARIA',
+            motivo_real='MEJOR OFERTA',
+            user_operator=user_op,
+            ip_address='127.0.0.1'
+        )
+
+        # 4. Validar que el tecnico esta INACTIVO con movil 'Z - FUERA DE OPERACION'
+        p_t1.refresh_from_db()
+        lab_t1.refresh_from_db()
+        self.assertEqual(p_t1.estado, 'INACTIVO')
+        self.assertFalse(p_t1.user.is_active)
+        self.assertEqual(lab_t1.movil, 'Z - FUERA DE OPERACION')
+
+        # 5. Validar que el auxiliar fue automaticamente desvinculado a '1 - SIN ASIGNAR'
+        lab_a1.refresh_from_db()
+        self.assertEqual(lab_a1.movil, '1 - SIN ASIGNAR')
+
+        # 6. Validar que se retorno la lista de auxiliares desvinculados
+        self.assertEqual(len(perfil_desc.auxiliares_desvinculados), 1)
+        self.assertEqual(perfil_desc.auxiliares_desvinculados[0]['id'], p_a1.id)
+
+        # 7. Validar auditoria de desvinculacion automatica en el auxiliar
+        log_aux = EmpleadoAuditoriaLog.objects.filter(
+            empleado=p_a1,
+            accion='DESVINCULACION_CUADRILLA_AUTOMATICA'
+        ).first()
+        self.assertIsNotNone(log_aux)
+        self.assertEqual(log_aux.datos_anteriores['movil'], movil_tiran)
+        self.assertEqual(log_aux.datos_nuevos['movil'], '1 - SIN ASIGNAR')
+
+    def test_desactivar_tecnico_no_desvincula_si_queda_otro_tecnico_activo_en_cuadrilla(self):
+        """
+        Si la cuadrilla cuenta con 2 tecnicos activos y uno se retira, el auxiliar
+        debe permanecer en la cuadrilla porque aun cuenta con un tecnico responsable.
+        """
+        import uuid
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+
+        User = get_user_model()
+        uid_op = uuid.uuid4().hex[:6]
+        user_op = User.objects.create_user(username=f'op2_{uid_op}', email=f'op2_{uid_op}@cinco.com', password='pwd')
+
+        movil_tiran2 = f'TIRAN_{uuid.uuid4().hex[:6]}'
+
+        # Tecnico 1 en TIRAN
+        uid_t1 = uuid.uuid4().hex[:6]
+        user_t1 = User.objects.create_user(username=f't1b_{uid_t1}', email=f't1b_{uid_t1}@cinco.com', password='pwd')
+        p_t1 = EmpleadoPerfil.objects.create(user=user_t1, numero_documento=f'93{uid_t1}', tipo_documento='CC', nombres='JUAN', apellidos='TEC UNO', estado='ACTIVO')
+        lab_t1 = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_t1, cargo='TECNICO', movil=movil_tiran2, area='OPERACIONES', carpeta='OPERACIONES')
+
+        # Tecnico 2 en TIRAN (coequipero activo)
+        uid_t2 = uuid.uuid4().hex[:6]
+        user_t2 = User.objects.create_user(username=f't2b_{uid_t2}', email=f't2b_{uid_t2}@cinco.com', password='pwd')
+        p_t2 = EmpleadoPerfil.objects.create(user=user_t2, numero_documento=f'94{uid_t2}', tipo_documento='CC', nombres='MIGUEL', apellidos='TEC DOS', estado='ACTIVO')
+        lab_t2 = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_t2, cargo='TECNICO', movil=movil_tiran2, area='OPERACIONES', carpeta='OPERACIONES')
+
+        # Auxiliar en TIRAN
+        uid_a = uuid.uuid4().hex[:6]
+        user_a = User.objects.create_user(username=f'ab_{uid_a}', email=f'ab_{uid_a}@cinco.com', password='pwd')
+        p_a = EmpleadoPerfil.objects.create(user=user_a, numero_documento=f'95{uid_a}', tipo_documento='CC', nombres='DANIEL', apellidos='AUX', estado='ACTIVO')
+        lab_a = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_a, cargo='AUXILIAR', movil=movil_tiran2, area='OPERACIONES', carpeta='OPERACIONES')
+
+        # Desactivar Tecnico 1
+        perfil_desc = EmpleadoWorkflowService.desactivar_empleado(
+            empleado_id=p_t1.id,
+            fecha_egreso='2026-10-30',
+            motivo='TERMINACION DE CONTRATO',
+            user_operator=user_op,
+            ip_address='127.0.0.1'
+        )
+
+        # Auxiliar NO debe ser desvinculado porque Tecnico 2 sigue activo en TIRAN02
+        lab_a.refresh_from_db()
+        self.assertEqual(lab_a.movil, movil_tiran2)
+        self.assertEqual(len(perfil_desc.auxiliares_desvinculados), 0)
+
+
+class EmpleadoAutoHerenciaCuadrillaTests(BaseEmpleadoTestCase):
+    """
+    Pruebas para la Regla Legacy 2.6 (Líneas 3050-3158 de infraestructura_cinco_sas.php):
+    - Auto-herencia de datos al asignar un Auxiliar a una cuadrilla activa (Caso C).
+    - Sincronización de Auxiliares cuando el Técnico actualiza supervisor/área/carpeta/transporte.
+    - Desvinculación de Auxiliares cuando el Técnico cambia de móvil y la cuadrilla queda vacía.
+    - Endpoint cuadrilla-info para consulta previa.
+    """
+
+    def test_auxiliar_hereda_datos_de_tecnico_al_asignar_movil(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoMovilidad, EmpleadoAuditoriaLog
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+
+        User = get_user_model()
+        uid_base = uuid.uuid4().hex[:6]
+        movil_herencia = f'HERENCIA_{uid_base}'
+
+        user_op = User.objects.create_user(username=f'op_{uid_base}', email=f'op_{uid_base}@cinco.com', password='pwd')
+
+        # 1. Crear Supervisor
+        user_sup = User.objects.create_user(username=f'sup_{uid_base}', email=f'sup_{uid_base}@cinco.com', password='pwd')
+        p_sup = EmpleadoPerfil.objects.create(user=user_sup, numero_documento=f'10{uid_base}', tipo_documento='CC', nombres='CARLOS', apellidos='SUPERVISOR', estado='ACTIVO')
+        EmpleadoLaboral.objects.create(fecha_ingreso=date(2023, 1, 1), empleado=p_sup, cargo='SUPERVISOR DE REDES', tipo_labor='SUPERVISOR', area='REDES FTTH', carpeta='FTTH MEDELLIN')
+
+        # 2. Crear Técnico activo en movil_herencia
+        user_tec = User.objects.create_user(username=f'tec_{uid_base}', email=f'tec_{uid_base}@cinco.com', password='pwd')
+        p_tec = EmpleadoPerfil.objects.create(user=user_tec, numero_documento=f'20{uid_base}', tipo_documento='CC', nombres='ANDRES', apellidos='TECNICO LIDER', estado='ACTIVO')
+        EmpleadoLaboral.objects.create(
+            fecha_ingreso=date(2024, 1, 1),
+            empleado=p_tec,
+            cargo='TECNICO DE REDES',
+            movil=movil_herencia,
+            area='OPERACIONES REDES',
+            carpeta='ZONA NORTE',
+            supervisor=p_sup
+        )
+        EmpleadoMovilidad.objects.create(empleado=p_tec, medio_transporte='MOTO', placa_vehiculo='TEC123')
+
+        # 3. Crear Auxiliar con movil '1 - SIN ASIGNAR' y datos diferentes
+        user_aux = User.objects.create_user(username=f'aux_{uid_base}', email=f'aux_{uid_base}@cinco.com', password='pwd')
+        p_aux = EmpleadoPerfil.objects.create(user=user_aux, numero_documento=f'30{uid_base}', tipo_documento='CC', nombres='FELIPE', apellidos='AUXILIAR REDES', estado='ACTIVO')
+        lab_aux = EmpleadoLaboral.objects.create(
+            fecha_ingreso=date(2024, 2, 1),
+            empleado=p_aux,
+            cargo='AUXILIAR DE REDES',
+            movil='1 - SIN ASIGNAR',
+            area='GESTION HUMANA',
+            carpeta='FORMACION',
+            supervisor=None
+        )
+
+        # 4. Asignar movil_herencia al Auxiliar mediante Serializer (emulando PATCH)
+        factory = APIRequestFactory()
+        req = factory.patch(f'/empleados/perfiles/{p_aux.id}/', {})
+        req.user = user_op
+        req.META['REMOTE_ADDR'] = '192.168.1.100'
+
+        serializer = EmpleadoPerfilDetailSerializer(
+            instance=p_aux,
+            data={
+                'laboral': {
+                    'cargo': 'AUXILIAR DE REDES',
+                    'movil': movil_herencia,
+                    'area': 'GESTION HUMANA',  # Usuario envía datos viejos o incompletos
+                    'carpeta': 'FORMACION',
+                    'fecha_ingreso': '2024-02-01',
+                }
+            },
+            partial=True,
+            context={'request': req}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        # 5. Comprobar que el Auxiliar heredó automáticamente supervisor, área, carpeta y medio_transporte
+        lab_aux.refresh_from_db()
+        self.assertEqual(lab_aux.movil, movil_herencia)
+        self.assertEqual(lab_aux.supervisor_id, p_sup.id)
+        self.assertEqual(lab_aux.area, 'OPERACIONES REDES')
+        self.assertEqual(lab_aux.carpeta, 'ZONA NORTE')
+
+        mov_aux = EmpleadoMovilidad.objects.get(empleado=p_aux)
+        self.assertEqual(mov_aux.medio_transporte, 'MOTO')
+
+        # 6. Validar log de auditoría
+        log = EmpleadoAuditoriaLog.objects.filter(
+            empleado=p_aux,
+            accion='HERENCIA_CUADRILLA_AUXILIAR'
+        ).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.datos_nuevos['supervisor_id'], p_sup.id)
+        self.assertEqual(log.datos_nuevos['area'], 'OPERACIONES REDES')
+        self.assertEqual(log.datos_nuevos['carpeta'], 'ZONA NORTE')
+        self.assertEqual(log.datos_nuevos['medio_transporte'], 'MOTO')
+        self.assertEqual(log.datos_nuevos['tecnico_origen'], p_tec.nombre_completo)
+
+    def test_tecnico_actualiza_supervisor_y_sincroniza_auxiliar(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoAuditoriaLog
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        movil = f'SYNC_{uid}'
+
+        user_op = User.objects.create_user(username=f'ops_{uid}', email=f'ops_{uid}@cinco.com', password='pwd')
+
+        # Supervisor 1 y Supervisor 2
+        p_sup1 = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f's1_{uid}'), numero_documento=f'11{uid}', nombres='SUP', apellidos='UNO', estado='ACTIVO')
+        p_sup2 = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f's2_{uid}'), numero_documento=f'12{uid}', nombres='SUP', apellidos='DOS', estado='ACTIVO')
+
+        # Técnico y Auxiliar en la misma móvil
+        p_tec = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f'tc_{uid}'), numero_documento=f'21{uid}', nombres='TEC', apellidos='P', estado='ACTIVO')
+        EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_tec, cargo='TECNICO', movil=movil, area='REDES', carpeta='NORTE', supervisor=p_sup1)
+
+        p_aux = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f'ax_{uid}'), numero_documento=f'31{uid}', nombres='AUX', apellidos='P', estado='ACTIVO')
+        lab_aux = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_aux, cargo='AUXILIAR', movil=movil, area='REDES', carpeta='NORTE', supervisor=p_sup1)
+
+        # Actualizar supervisor del técnico a Supervisor 2 y área a 'REDES SUR'
+        factory = APIRequestFactory()
+        req = factory.patch(f'/empleados/perfiles/{p_tec.id}/', {})
+        req.user = user_op
+        req.META['REMOTE_ADDR'] = '127.0.0.1'
+
+        serializer = EmpleadoPerfilDetailSerializer(
+            instance=p_tec,
+            data={
+                'laboral': {
+                    'cargo': 'TECNICO',
+                    'movil': movil,
+                    'area': 'REDES SUR',
+                    'carpeta': 'ZONA SUR',
+                    'supervisor': p_sup2.id,
+                    'fecha_ingreso': '2024-01-01',
+                }
+            },
+            partial=True,
+            context={'request': req}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        # El auxiliar debe sincronizarse automáticamente
+        lab_aux.refresh_from_db()
+        self.assertEqual(lab_aux.supervisor_id, p_sup2.id)
+        self.assertEqual(lab_aux.area, 'REDES SUR')
+        self.assertEqual(lab_aux.carpeta, 'ZONA SUR')
+
+        log = EmpleadoAuditoriaLog.objects.filter(empleado=p_aux, accion='SINCRONIZACION_CUADRILLA').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.datos_nuevos['supervisor_id'], p_sup2.id)
+        self.assertEqual(log.datos_nuevos['area'], 'REDES SUR')
+
+    def test_tecnico_cambia_de_movil_y_desvincula_auxiliar_huerfano(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoAuditoriaLog
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        movil_ant = f'OLD_{uid}'
+        movil_nueva = f'NEW_{uid}'
+
+        user_op = User.objects.create_user(username=f'opm_{uid}', email=f'opm_{uid}@cinco.com', password='pwd')
+
+        p_tec = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f'tcm_{uid}'), numero_documento=f'41{uid}', nombres='TEC', apellidos='MOV', estado='ACTIVO')
+        EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_tec, cargo='TECNICO', movil=movil_ant, area='REDES', carpeta='NORTE')
+
+        p_aux = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f'axm_{uid}'), numero_documento=f'51{uid}', nombres='AUX', apellidos='MOV', estado='ACTIVO')
+        lab_aux = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_aux, cargo='AUXILIAR', movil=movil_ant, area='REDES', carpeta='NORTE')
+
+        # Técnico cambia a movil_nueva
+        factory = APIRequestFactory()
+        req = factory.patch(f'/empleados/perfiles/{p_tec.id}/', {})
+        req.user = user_op
+        req.META['REMOTE_ADDR'] = '127.0.0.1'
+
+        serializer = EmpleadoPerfilDetailSerializer(
+            instance=p_tec,
+            data={
+                'laboral': {
+                    'cargo': 'TECNICO',
+                    'movil': movil_nueva,
+                    'area': 'REDES',
+                    'carpeta': 'NORTE',
+                    'fecha_ingreso': '2024-01-01',
+                }
+            },
+            partial=True,
+            context={'request': req}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        # Auxiliar en movil_ant queda sin técnico -> debe pasar a '1 - SIN ASIGNAR'
+        lab_aux.refresh_from_db()
+        self.assertEqual(lab_aux.movil, '1 - SIN ASIGNAR')
+
+        log = EmpleadoAuditoriaLog.objects.filter(empleado=p_aux, accion='DESVINCULACION_CUADRILLA').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.datos_anteriores['movil'], movil_ant)
+        self.assertEqual(log.datos_nuevos['movil'], '1 - SIN ASIGNAR')
+
+    def test_cuadrilla_info_endpoint(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoMovilidad
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        movil = f'INFO_{uid}'
+
+        user = User.objects.create_user(username=f'uinfo_{uid}', password='pwd')
+        p_sup = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f'sinfo_{uid}'), numero_documento=f'61{uid}', nombres='MARIO', apellidos='SUPERVISOR', estado='ACTIVO')
+        p_tec = EmpleadoPerfil.objects.create(user=User.objects.create_user(username=f'tinfo_{uid}'), numero_documento=f'71{uid}', nombres='PEDRO', apellidos='TECNICO', estado='ACTIVO')
+
+        EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p_tec, cargo='TECNICO FIBRA', movil=movil, area='FIBRA OPTICA', carpeta='CARPETA ORIENTE', supervisor=p_sup)
+        EmpleadoMovilidad.objects.create(empleado=p_tec, medio_transporte='CAMIONETA')
+
+        factory = APIRequestFactory()
+        view = EmpleadoPerfilViewSet.as_view({'get': 'cuadrilla_info'})
+
+        # 1. Consulta móvil existente
+        req = factory.get(f'/empleados/perfiles/cuadrilla-info/?movil={movil}')
+        force_authenticate(req, user=user)
+        res = view(req)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['existe_tecnico'])
+        self.assertEqual(res.data['tecnico']['nombre_completo'], p_tec.nombre_completo)
+        self.assertEqual(res.data['tecnico']['area'], 'FIBRA OPTICA')
+        self.assertEqual(res.data['tecnico']['carpeta'], 'CARPETA ORIENTE')
+        self.assertEqual(res.data['tecnico']['supervisor_id'], p_sup.id)
+        self.assertEqual(res.data['tecnico']['medio_transporte'], 'CAMIONETA')
+
+        # 2. Consulta móvil '1 - SIN ASIGNAR'
+        req_sin = factory.get('/empleados/perfiles/cuadrilla-info/?movil=1 - SIN ASIGNAR')
+        force_authenticate(req_sin, user=user)
+        res_sin = view(req_sin)
+        self.assertEqual(res_sin.status_code, 200)
+        self.assertFalse(res_sin.data['existe_tecnico'])
+
+
+class EmpleadoReactivacionRecuperarMovilTests(BaseEmpleadoTestCase):
+    """
+    Pruebas para la Regla Legacy 2.7 (Líneas 824-858 de infraestructura_cinco_sas.php):
+    - Recuperación del móvil previo desde la bitácora de auditoría al reactivar un colaborador.
+    - Soporte para override de móvil si se especifica uno explícito.
+    - Endpoint movil-previa.
+    - Fallback a '1 - SIN ASIGNAR' si no hay registro histórico.
+    """
+
+    def test_reactivar_recupera_movil_previa_desactivacion(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoAuditoriaLog
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        movil_original = f'TIRAN_REC_{uid}'
+
+        user_op = User.objects.create_user(username=f'op_rec_{uid}', password='pwd')
+        user_emp = User.objects.create_user(username=f'emp_rec_{uid}', password='pwd')
+
+        # 1. Crear empleado activo con cuadrilla asignada
+        p = EmpleadoPerfil.objects.create(user=user_emp, numero_documento=f'88{uid}', tipo_documento='CC', nombres='JUAN', apellidos='PEREZ', estado='ACTIVO')
+        lab = EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p, cargo='TECNICO', movil=movil_original, area='REDES', carpeta='NORTE')
+
+        # 2. Desactivar empleado
+        EmpleadoWorkflowService.desactivar_empleado(
+            empleado_id=p.id,
+            fecha_egreso='2026-10-30',
+            motivo='TERMINACION VOLUNTARIA',
+            user_operator=user_op,
+            ip_address='127.0.0.1'
+        )
+
+        p.refresh_from_db()
+        lab.refresh_from_db()
+        self.assertEqual(p.estado, 'INACTIVO')
+        self.assertEqual(lab.movil, 'Z - FUERA DE OPERACION')
+
+        # 3. Consultar endpoint movil-previa
+        factory = APIRequestFactory()
+        view_previa = EmpleadoPerfilViewSet.as_view({'get': 'movil_previa'})
+        req_prev = factory.get(f'/empleados/perfiles/{p.id}/movil-previa/')
+        force_authenticate(req_prev, user=user_op)
+        res_prev = view_previa(req_prev, pk=p.id)
+        self.assertEqual(res_prev.status_code, 200)
+        self.assertEqual(res_prev.data['movil_previa'], movil_original)
+
+        # 4. Reactivar sin enviar movil_inicial (debe recuperar movil_original)
+        view_react = EmpleadoPerfilViewSet.as_view({'post': 'reactivar'})
+        req_react = factory.post(f'/empleados/perfiles/{p.id}/reactivar/', {'observaciones': 'Reingreso autorizado'})
+        force_authenticate(req_react, user=user_op)
+        res_react = view_react(req_react, pk=p.id)
+
+        self.assertEqual(res_react.status_code, 200)
+        self.assertEqual(res_react.data['estado'], 'ACTIVO')
+        self.assertEqual(res_react.data['movil'], movil_original)
+
+        p.refresh_from_db()
+        lab.refresh_from_db()
+        self.assertEqual(p.estado, 'ACTIVO')
+        self.assertTrue(p.user.is_active)
+        self.assertIsNone(lab.fecha_egreso)
+        self.assertEqual(lab.movil, movil_original)
+
+        # 5. Validar traza de auditoría de reactivación
+        log_react = EmpleadoAuditoriaLog.objects.filter(empleado=p, accion='REACTIVACION').first()
+        self.assertIsNotNone(log_react)
+        self.assertEqual(log_react.datos_nuevos['movil'], movil_original)
+        self.assertEqual(log_react.datos_nuevos['observaciones'], 'Reingreso autorizado')
+
+    def test_reactivar_con_override_de_movil(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        user_op = User.objects.create_user(username=f'op_ov_{uid}', password='pwd')
+        user_emp = User.objects.create_user(username=f'emp_ov_{uid}', password='pwd')
+
+        p = EmpleadoPerfil.objects.create(user=user_emp, numero_documento=f'89{uid}', tipo_documento='CC', nombres='ANDREA', apellidos='GARCIA', estado='ACTIVO')
+        EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p, cargo='AUXILIAR', movil=f'OLD_MOV_{uid}', area='REDES', carpeta='NORTE')
+
+        EmpleadoWorkflowService.desactivar_empleado(
+            empleado_id=p.id,
+            fecha_egreso='2026-10-30',
+            motivo='RETIRO',
+            user_operator=user_op
+        )
+
+        movil_custom = f'CUSTOM_{uid}'
+        EmpleadoWorkflowService.reactivar_empleado(
+            empleado_id=p.id,
+            movil_inicial=movil_custom,
+            user_operator=user_op
+        )
+
+        p.refresh_from_db()
+        self.assertEqual(p.laboral.movil, movil_custom)
+
+    def test_reactivar_sin_historial_fallback_sin_asignar(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        user_op = User.objects.create_user(username=f'op_fb_{uid}', password='pwd')
+        user_emp = User.objects.create_user(username=f'emp_fb_{uid}', password='pwd')
+
+        # Empleado creado directamente inactivo sin logs de desactivación
+        p = EmpleadoPerfil.objects.create(user=user_emp, numero_documento=f'90{uid}', tipo_documento='CC', nombres='LUCAS', apellidos='MORA', estado='INACTIVO')
+        EmpleadoLaboral.objects.create(fecha_ingreso=date(2024, 1, 1), empleado=p, cargo='AUXILIAR', movil='Z - FUERA DE OPERACION', area='REDES', carpeta='NORTE')
+
+        EmpleadoWorkflowService.reactivar_empleado(
+            empleado_id=p.id,
+            user_operator=user_op
+        )
+
+        p.refresh_from_db()
+        self.assertEqual(p.laboral.movil, '1 - SIN ASIGNAR')
+
+
+class EmpleadoAprendicesSenaTests(BaseEmpleadoTestCase):
+    """
+    Pruebas para la Regla Legacy 2.8 (Líneas 7600-7649 de infraestructura_cinco_sas.php):
+    - Autocálculo de 6 meses para etapas lectivas y productivas en aprendices SENA.
+    - Manejo de fin de mes y años bisiestos/meses de 28-30 días.
+    - Autocompletado en creación y actualización laboral.
+    """
+
+    def test_calcular_seis_meses_despues_algoritmo(self):
+        from datetime import date
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+
+        # 1. Fecha estándar: 15 de enero a 15 de julio
+        f1 = EmpleadoWorkflowService.calcular_seis_meses_despues('2024-01-15')
+        self.assertEqual(f1, date(2024, 7, 15))
+
+        # 2. Ajuste a fin de mes: 31 de agosto + 6 meses -> 28 de febrero (año no bisiesto)
+        f2 = EmpleadoWorkflowService.calcular_seis_meses_despues('2024-08-31')
+        self.assertEqual(f2, date(2025, 2, 28))
+
+        # 3. Ajuste a fin de mes: 31 de marzo + 6 meses -> 30 de septiembre
+        f3 = EmpleadoWorkflowService.calcular_seis_meses_despues('2024-03-31')
+        self.assertEqual(f3, date(2024, 9, 30))
+
+        # 4. Fin de mes en año bisiesto: 31 de agosto de 2023 + 6 meses -> 29 de febrero de 2024
+        f4 = EmpleadoWorkflowService.calcular_seis_meses_despues('2023-08-31')
+        self.assertEqual(f4, date(2024, 2, 29))
+
+    def test_crear_empleado_autocalcula_etapas_sena(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        user_op = User.objects.create_user(username=f'opsena_{uid}', password='pwd')
+
+        data = {
+            'numero_documento': f'71{uid}',
+            'nombres': 'CAROLINA',
+            'apellidos': 'GOMEZ SENA',
+            'laboral': {
+                'cargo': 'APRENDIZ SENA ETAPA LECTIVA',
+                'fecha_ingreso': '2024-02-01',
+                'practica_lectiva_inicio': '2024-02-01',
+                'practica_productiva_inicio': '2024-08-01',
+            }
+        }
+
+        perfil = EmpleadoWorkflowService.crear_empleado(
+            data=data,
+            user_creator=user_op,
+            ip_address='127.0.0.1'
+        )
+
+        lab = perfil.laboral
+        lab.refresh_from_db()
+        self.assertEqual(lab.practica_lectiva_inicio, date(2024, 2, 1))
+        self.assertEqual(lab.practica_lectiva_fin, date(2024, 8, 1))
+        self.assertEqual(lab.practica_productiva_inicio, date(2024, 8, 1))
+        self.assertEqual(lab.practica_productiva_fin, date(2025, 2, 1))
+
+    def test_actualizar_laboral_autocalcula_etapa_productiva_serializer(self):
+        import uuid
+        from datetime import date
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        user_op = User.objects.create_user(username=f'upsena_{uid}', password='pwd')
+
+        p = EmpleadoPerfil.objects.create(
+            user=User.objects.create_user(username=f'empsena_{uid}'),
+            numero_documento=f'72{uid}',
+            nombres='ESTEBAN',
+            apellidos='APRENDIZ',
+            estado='ACTIVO'
+        )
+        lab = EmpleadoLaboral.objects.create(
+            fecha_ingreso=date(2024, 1, 1),
+            empleado=p,
+            cargo='APRENDIZ SENA'
+        )
+
+        factory = APIRequestFactory()
+        req = factory.patch(f'/empleados/perfiles/{p.id}/', {})
+        req.user = user_op
+        req.META['REMOTE_ADDR'] = '127.0.0.1'
+
+        serializer = EmpleadoPerfilDetailSerializer(
+            instance=p,
+            data={
+                'laboral': {
+                    'cargo': 'APRENDIZ SENA',
+                    'fecha_ingreso': '2024-01-01',
+                    'practica_productiva_inicio': '2024-03-31',
+                }
+            },
+            partial=True,
+            context={'request': req}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        lab.refresh_from_db()
+        self.assertEqual(lab.practica_productiva_inicio, date(2024, 3, 31))
+        self.assertEqual(lab.practica_productiva_fin, date(2024, 9, 30))
+
+
+class EmpleadoPeriodoPruebaSemaforoTests(BaseEmpleadoTestCase):
+    """
+    Pruebas para la Regla Legacy 2.9 (Líneas 8426-8433, 8454 de infraestructura_cinco_sas.php
+    y cont_consulta_infra.php: DATEDIFF(DATE_ADD(fecha_ingreso, INTERVAL 2 MONTH), CURDATE())):
+    - Cálculo de 2 meses exactos calendario para el período de prueba.
+    - Días restantes y flag en_periodo_prueba.
+    - Semaforización tricolor: Verde (>30d), Amarillo (16-30d), Rojo (<=15d) y Superado (<0d).
+    - Serialización en EmpleadoPerfilListSerializer y EmpleadoLaboralSerializer.
+    """
+
+    def setUp(self):
+        import uuid
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        self.user = User.objects.create_user(username=f'usr_pp_{uid}', password='pwd')
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.user,
+            numero_documento=f'99{uid}',
+            nombres='CARLOS',
+            apellidos='PRUEBA',
+            estado='ACTIVO'
+        )
+
+    def test_calculo_periodo_prueba_verde_mas_de_30_dias(self):
+        import calendar
+        from datetime import date, timedelta
+        from django.utils import timezone
+        from apps.empleados.models import EmpleadoLaboral
+
+        # Ingresó hace 10 días -> le quedan aprox 50 días (Verde > 30)
+        hoy = timezone.now().date()
+        fecha_ing = hoy - timedelta(days=10)
+
+        lab = EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            cargo='TECNICO',
+            fecha_ingreso=fecha_ing
+        )
+
+        self.assertTrue(lab.en_periodo_prueba)
+        self.assertTrue(self.perfil.en_periodo_prueba)
+        self.assertGreater(lab.dias_para_periodo_prueba, 30)
+        self.assertEqual(lab.dias_para_periodo_prueba, self.perfil.dias_para_periodo_prueba)
+
+    def test_calculo_periodo_prueba_amarillo_16_a_30_dias(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.empleados.models import EmpleadoLaboral
+
+        hoy = timezone.now().date()
+        # Si le quedan 20 días para cumplir 2 meses (aprox 60 días totales): ingresó hace 40 días
+        # Ajustamos dinámicamente para que caiga exactamente entre 16 y 30 días
+        fecha_ing = hoy - timedelta(days=38)
+
+        lab = EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            cargo='TECNICO',
+            fecha_ingreso=fecha_ing
+        )
+
+        self.assertTrue(lab.en_periodo_prueba)
+        self.assertGreaterEqual(lab.dias_para_periodo_prueba, 16)
+        self.assertLessEqual(lab.dias_para_periodo_prueba, 30)
+
+    def test_calculo_periodo_prueba_rojo_critico_menor_igual_15_dias(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.empleados.models import EmpleadoLaboral
+
+        hoy = timezone.now().date()
+        # Le quedan 5 días para cumplir 2 meses: ingresó hace aprox 55 días
+        fecha_ing = hoy - timedelta(days=55)
+
+        lab = EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            cargo='TECNICO',
+            fecha_ingreso=fecha_ing
+        )
+
+        self.assertTrue(lab.en_periodo_prueba)
+        self.assertGreaterEqual(lab.dias_para_periodo_prueba, 0)
+        self.assertLessEqual(lab.dias_para_periodo_prueba, 15)
+
+    def test_periodo_prueba_superado(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.empleados.models import EmpleadoLaboral
+
+        hoy = timezone.now().date()
+        # Ingresó hace 120 días -> superado hace casi 2 meses
+        fecha_ing = hoy - timedelta(days=120)
+
+        lab = EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            cargo='TECNICO',
+            fecha_ingreso=fecha_ing
+        )
+
+        self.assertFalse(lab.en_periodo_prueba)
+        self.assertFalse(self.perfil.en_periodo_prueba)
+        self.assertLess(lab.dias_para_periodo_prueba, 0)
+
+    def test_serializer_listado_incluye_periodo_prueba(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.empleados.models import EmpleadoLaboral
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilListSerializer
+
+        hoy = timezone.now().date()
+        EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            cargo='TECNICO',
+            fecha_ingreso=hoy - timedelta(days=15)
+        )
+
+        serializer = EmpleadoPerfilListSerializer(instance=self.perfil)
+        data = serializer.data
+
+        self.assertIn('dias_para_periodo_prueba', data)
+        self.assertIn('en_periodo_prueba', data)
+        self.assertTrue(data['en_periodo_prueba'])
+        self.assertGreater(data['dias_para_periodo_prueba'], 30)
+
+    def test_endpoint_filtrar_periodo_prueba(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoLaboral
+
+        hoy = timezone.now().date()
+        EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            cargo='TECNICO',
+            fecha_ingreso=hoy - timedelta(days=20)
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        response = client.get('/empleados/perfiles/?periodo_prueba=true')
+        self.assertEqual(response.status_code, 200)
+        data = response.data if isinstance(response.data, list) else response.data.get('results', [])
+        ids = [item['id'] for item in data]
+        self.assertIn(self.perfil.id, ids)
+
+
+class EmpleadoSubirFotoTests(BaseEmpleadoTestCase):
+    """
+    Pruebas para la carga de fotografía de perfil del colaborador (Regla Legacy: save_foto).
+    """
+
+    def setUp(self):
+        import uuid
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        self.user = User.objects.create_user(username=f'foto_usr_{uid}', password='pwd')
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.user,
+            numero_documento=f'88{uid}',
+            nombres='FOTO',
+            apellidos='EMPLEADO',
+            estado='ACTIVO',
+            foto_url='photos/Default.png'
+        )
+
+    def test_subir_foto_exitoso(self):
+        import os
+        from django.conf import settings
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoAuditoriaLog
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        fake_image = SimpleUploadedFile(
+            name="test_avatar.jpg",
+            content=b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00",
+            content_type="image/jpeg"
+        )
+
+        response = client.post(
+            f"/empleados/perfiles/{self.perfil.id}/subir-foto/",
+            {'foto': fake_image},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data.get('success'))
+        self.assertTrue(response.data.get('foto_url').startswith('/media/infraestructura/fotos_empleados/'))
+
+        self.perfil.refresh_from_db()
+        self.assertEqual(self.perfil.foto_url, response.data['foto_url'])
+
+        # Verificar auditoría
+        audit = EmpleadoAuditoriaLog.objects.filter(
+            empleado=self.perfil,
+            accion='ACTUALIZACION',
+            tabla_afectada='empleados_perfiles'
+        ).last()
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit.datos_anteriores.get('foto_url'), 'photos/Default.png')
+        self.assertEqual(audit.datos_nuevos.get('foto_url'), response.data['foto_url'])
+
+        # Limpiar archivo físico creado
+        saved_file_rel = response.data['foto_url'].lstrip('/')
+        if saved_file_rel.startswith('media/'):
+            saved_file_rel = saved_file_rel[6:]
+        saved_file_abs = os.path.join(settings.MEDIA_ROOT, saved_file_rel)
+        if os.path.exists(saved_file_abs):
+            try:
+                os.remove(saved_file_abs)
+            except Exception:
+                pass
+
+    def test_subir_foto_formato_invalido(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        fake_txt = SimpleUploadedFile(
+            name="malicious.txt",
+            content=b"not an image",
+            content_type="text/plain"
+        )
+
+        response = client.post(
+            f"/empleados/perfiles/{self.perfil.id}/subir-foto/",
+            {'foto': fake_txt},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.data)

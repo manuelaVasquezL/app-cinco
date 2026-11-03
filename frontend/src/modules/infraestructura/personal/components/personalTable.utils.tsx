@@ -12,6 +12,21 @@ import {
 import { EmpleadoPerfilItem } from "@/types/empleado";
 import { CsvColumn } from "@/utils/csv";
 
+import { API_BASE_URL } from "@/lib/apiConfig";
+
+export const resolveFotoUrl = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/media/")) {
+    const base = API_BASE_URL.replace(/\/+$/, "");
+    return `${base}${url}`;
+  }
+  if (url.startsWith("photos/")) {
+    return `https://www.cincosas.com/2mp21d4s/${url}`;
+  }
+  return url;
+};
+
 export const getInitials = (nombre: string) => {
   const parts = nombre.split(" ").filter(Boolean);
   if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
@@ -137,9 +152,9 @@ export const getPersonalColumns = ({
       return (
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-brand-400 text-xs font-bold text-white shadow-xs overflow-hidden">
-            {emp.foto_url || emp.foto_perfil_url ? (
+            {resolveFotoUrl(emp.foto_url || emp.foto_perfil_url) ? (
               <img
-                src={(emp.foto_url || emp.foto_perfil_url) || undefined}
+                src={resolveFotoUrl(emp.foto_url || emp.foto_perfil_url)}
                 alt={emp.nombre_completo}
                 className="h-full w-full rounded-xl object-cover"
               />
@@ -154,9 +169,27 @@ export const getPersonalColumns = ({
             >
               {emp.nombre_completo}
             </button>
-            <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400">
-              {emp.tipo_documento} {emp.numero_documento}
-            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400">
+                {emp.tipo_documento} {emp.numero_documento}
+              </p>
+              {emp.dias_para_periodo_prueba !== undefined &&
+                emp.dias_para_periodo_prueba !== null &&
+                emp.dias_para_periodo_prueba >= 0 && (
+                  <span
+                    title={`Tiempo Periodo Prueba - ${emp.dias_para_periodo_prueba} días restantes`}
+                    className={`inline-flex items-center cursor-help ${
+                      emp.dias_para_periodo_prueba > 30
+                        ? "text-emerald-500 hover:text-emerald-600"
+                        : emp.dias_para_periodo_prueba > 15
+                        ? "text-amber-500 hover:text-amber-600"
+                        : "text-rose-500 hover:text-rose-600 animate-pulse"
+                    }`}
+                  >
+                    <Clock className="h-3 w-3" />
+                  </span>
+                )}
+            </div>
           </div>
         </div>
       );
@@ -223,9 +256,28 @@ export const getPersonalColumns = ({
             {emp.estado}
           </span>
           {emp.en_periodo_prueba && (
-            <span className="inline-flex items-center gap-1 rounded-sm bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 dark:bg-orange-500/15 dark:text-orange-400">
-              <Clock className="h-2.5 w-2.5" />
-              Período de Prueba
+            <span
+              title={
+                typeof emp.dias_para_periodo_prueba === "number" && emp.dias_para_periodo_prueba >= 0
+                  ? `Tiempo Periodo Prueba - ${emp.dias_para_periodo_prueba} días restantes`
+                  : "Período de Prueba"
+              }
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                typeof emp.dias_para_periodo_prueba === "number"
+                  ? emp.dias_para_periodo_prueba > 30
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-500/10 dark:text-emerald-400"
+                    : emp.dias_para_periodo_prueba > 15
+                    ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/40 dark:bg-amber-500/10 dark:text-amber-400"
+                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800/40 dark:bg-rose-500/10 dark:text-rose-400 animate-pulse"
+                  : "border-orange-200 bg-orange-50 text-orange-600 dark:bg-orange-500/15 dark:text-orange-400"
+              }`}
+            >
+              <Clock className="h-2.5 w-2.5 shrink-0" />
+              <span>
+                {typeof emp.dias_para_periodo_prueba === "number" && emp.dias_para_periodo_prueba >= 0
+                  ? `Prueba: ${emp.dias_para_periodo_prueba}d`
+                  : "Período de Prueba"}
+              </span>
             </span>
           )}
         </div>

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { X, Save, Loader2, Mail, Shield, Shirt, MapPin, User, FileText, Upload, ExternalLink, CheckCircle2, Briefcase, Building2, Calendar, Phone, Car, Trash2 } from "lucide-react";
+import { X, Save, Loader2, Mail, Shield, Shirt, MapPin, User, FileText, Upload, ExternalLink, CheckCircle2, Briefcase, Building2, Calendar, Phone, Car, Trash2, Users } from "lucide-react";
 import DatePicker from "@/components/form/date-picker";
 import { toast } from "sonner";
 import { EmpleadoPerfilCompleto, EmpleadoDocumentoAdjunto } from "@/types/empleado";
@@ -80,6 +80,25 @@ const toDateOrUndefined = (value?: string | null): Date | undefined => {
   return new Date(Number(year), Number(month) - 1, Number(day), 12);
 };
 
+function calcularSeisMesesDespues(fechaIso: string): string {
+  if (!fechaIso) return "";
+  const fechaInicio = new Date(fechaIso + "T00:00:00");
+  if (isNaN(fechaInicio.getTime())) return "";
+
+  const fechaFin = new Date(fechaInicio);
+  fechaFin.setMonth(fechaFin.getMonth() + 6);
+
+  if (fechaFin.getDate() !== fechaInicio.getDate()) {
+    fechaFin.setDate(0);
+  }
+
+  const año = fechaFin.getFullYear();
+  const mes = String(fechaFin.getMonth() + 1).padStart(2, "0");
+  const dia = String(fechaFin.getDate()).padStart(2, "0");
+
+  return `${año}-${mes}-${dia}`;
+}
+
 export const ModalEditarPerfil: React.FC<Props> = ({
   empleado,
   seccionInicial = "contacto",
@@ -105,6 +124,53 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [codigoSap, setCodigoSap] = useState(empleado.laboral?.codigo_sap || "");
   const [puesto, setPuesto] = useState(empleado.laboral?.puesto || "");
   const [movil, setMovil] = useState(empleado.laboral?.movil || "");
+  const [cuadrillaInfo, setCuadrillaInfo] = useState<{
+    cargando: boolean;
+    tecnicoNombre: string | null;
+    supervisorId: number | null;
+    supervisorNombre: string | null;
+    area: string | null;
+    carpeta: string | null;
+    medioTransporte: string | null;
+  } | null>(null);
+
+  const handleMovilBlur = async (movilValor: string) => {
+    const cleanMovil = movilValor.trim().toUpperCase();
+    const esAuxiliar = cargo.toUpperCase().includes("AUXILIAR");
+    if (!esAuxiliar || !cleanMovil || cleanMovil.includes("ASIGNAR") || cleanMovil.includes("FUERA")) {
+      setCuadrillaInfo(null);
+      return;
+    }
+
+    try {
+      setCuadrillaInfo({ cargando: true, tecnicoNombre: null, supervisorId: null, supervisorNombre: null, area: null, carpeta: null, medioTransporte: null });
+      const res = await personalService.getCuadrillaInfo(cleanMovil);
+      if (res.existe_tecnico && res.tecnico) {
+        setCuadrillaInfo({
+          cargando: false,
+          tecnicoNombre: res.tecnico.nombre_completo,
+          supervisorId: res.tecnico.supervisor_id,
+          supervisorNombre: res.tecnico.supervisor_nombre,
+          area: res.tecnico.area,
+          carpeta: res.tecnico.carpeta,
+          medioTransporte: res.tecnico.medio_transporte,
+        });
+
+        if (res.tecnico.area) setArea(res.tecnico.area);
+        if (res.tecnico.carpeta) setCarpeta(res.tecnico.carpeta);
+        if (res.tecnico.supervisor_id) setSupervisorId(String(res.tecnico.supervisor_id));
+        if (res.tecnico.medio_transporte) setMedioTransporte(res.tecnico.medio_transporte);
+
+        toast.info(
+          `Cuadrilla activa (${cleanMovil}): Datos heredados del técnico ${res.tecnico.nombre_completo}.`
+        );
+      } else {
+        setCuadrillaInfo(null);
+      }
+    } catch {
+      setCuadrillaInfo(null);
+    }
+  };
   const [funcionCargo, setFuncionCargo] = useState(empleado.laboral?.funcion_cargo || "");
   const [zonaNodo, setZonaNodo] = useState(empleado.laboral?.zona_nodo || "");
   const [supervisorId, setSupervisorId] = useState<string>(
@@ -668,7 +734,6 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center justify-between">
                       <span>Tipo de Labor <span className="text-red-500">*</span></span>
-                      <span className="text-3xs text-gray-400 font-normal">Jerarquía operativa</span>
                     </label>
                     <select
                       value={tipoLabor}
@@ -676,10 +741,9 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                       required
                       className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-xs font-medium text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     >
-                      <option value="OPERATIVO">OPERATIVO (Técnicos y Cuadrillas en campo)</option>
-                      <option value="ADMINISTRATIVO">ADMINISTRATIVO (Personal de gestión y oficina)</option>
-                      <option value="SUPERVISOR">SUPERVISOR (Líder operativo y supervisión)</option>
-                      <option value="TRANSVERSAL">TRANSVERSAL (Áreas de apoyo transversal)</option>
+                      <option value="OPERATIVO">OPERATIVO</option>
+                      <option value="ADMINISTRATIVO">ADMINISTRATIVO</option>
+                      <option value="SUPERVISOR">SUPERVISOR</option>
                     </select>
                   </div>
                 </div>
@@ -770,13 +834,23 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                       Móvil / Cuadrilla
                     </label>
-                    <input
+<input
                       type="text"
                       value={movil}
                       onChange={(e) => setMovil(e.target.value.toUpperCase())}
+                      onBlur={(e) => handleMovilBlur(e.target.value)}
                       placeholder="Ej: M-101 / SIN ASIGNAR"
                       className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs font-mono uppercase text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     />
+                    {cuadrillaInfo && cuadrillaInfo.tecnicoNombre && (
+                      <div className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 p-2 text-[11px] text-blue-800 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-200">
+                        <Users className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Auto-herencia de cuadrilla (Regla Legacy 2.6):</span>
+                          {" "}Técnico activo detectado: <strong className="underline">{cuadrillaInfo.tecnicoNombre}</strong>. Se autocompletaron Área ({cuadrillaInfo.area}), Carpeta ({cuadrillaInfo.carpeta}), Supervisor ({cuadrillaInfo.supervisorNombre || "Sin asignar"}) y Transporte ({cuadrillaInfo.medioTransporte || "Ninguno"}).
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -966,6 +1040,11 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                           const m = String(selected.getMonth() + 1).padStart(2, "0");
                           const d = String(selected.getDate()).padStart(2, "0");
                           setPracticaLectivaInicio(`${y}-${m}-${d}`);
+                          const fStr = `${y}-${m}-${d}`;
+                          const finAuto = calcularSeisMesesDespues(fStr);
+                          if (finAuto) {
+                            setPracticaLectivaFin(finAuto);
+                          }
                         }
                       }}
                         />
@@ -1007,6 +1086,11 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                           const m = String(selected.getMonth() + 1).padStart(2, "0");
                           const d = String(selected.getDate()).padStart(2, "0");
                           setPracticaProductivaInicio(`${y}-${m}-${d}`);
+                          const fStr = `${y}-${m}-${d}`;
+                          const finAuto = calcularSeisMesesDespues(fStr);
+                          if (finAuto) {
+                            setPracticaProductivaFin(finAuto);
+                          }
                         }
                       }}
                         />
@@ -2091,7 +2175,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                 <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300">
                   <Shield className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
                   <span>
-                    <strong>Regla de Exclusividad:</strong> La placa registrada se valida atómicamente. Si ya pertenecía a otro colaborador, se le retirará y reasignará automáticamente, generando la respectiva traza en la auditoría del sistema.
+                    <strong>Regla de Exclusividad:</strong> Si la placa ya pertenecía a otro colaborador, se le retirará y reasignará automáticamente, generando la respectiva traza en la auditoría del sistema.
                   </span>
                 </div>
 
@@ -2106,7 +2190,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                       className="h-4 w-4 rounded-sm border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-700"
                     />
                     <label htmlFor="sabeConducir" className="text-xs font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
-                      ¿El colaborador posee habilidad y autorización para conducir vehículos? (sabe_conducir)
+                      ¿El colaborador posee habilidad y autorización para conducir vehículos?
                     </label>
                   </div>
 
@@ -2165,7 +2249,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-brand-600 dark:text-brand-400" />
                     <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                      Licencia de Conducción (Copia Digital Adjunta)
+                      Licencia de Conducción
                     </h4>
                   </div>
                 </div>

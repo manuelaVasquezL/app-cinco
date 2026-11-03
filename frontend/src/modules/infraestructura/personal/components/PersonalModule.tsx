@@ -9,23 +9,30 @@ import { PersonalFiltersBar } from "./PersonalFiltersBar";
 import { PersonalTable } from "./PersonalTable";
 import { PersonalDetailModal } from "./PersonalDetailModal";
 import { ModalCrearEmpleado } from "./ModalCrearEmpleado";
+import { ModalAlertasPeriodoPrueba } from "./ModalAlertasPeriodoPrueba";
 
 export const PersonalModule: React.FC = () => {
   const {
     items,
     isLoading,
     fetchEmpleados,
+    fetchEstadisticas,
     selectedEmpleado,
     fetchEmpleadoDetail,
     clearSelected,
+    soloPeriodoPrueba,
+    setSoloPeriodoPrueba,
   } = usePersonalStore();
+
+  const [isAlertasOpen, setIsAlertasOpen] = useState(false);
 
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCrearOpen, setIsCrearOpen] = useState(false);
 
   useEffect(() => {
     fetchEmpleados();
-  }, [fetchEmpleados]);
+    fetchEstadisticas();
+  }, [fetchEmpleados, fetchEstadisticas]);
 
   const handleSelectEmpleado = async (id: number) => {
     await fetchEmpleadoDetail(id);
@@ -37,20 +44,29 @@ export const PersonalModule: React.FC = () => {
     clearSelected();
   };
 
+  const displayedItems = React.useMemo(() => {
+    if (!soloPeriodoPrueba) return items;
+    return [...items].sort((a, b) => (a.dias_para_periodo_prueba ?? 999) - (b.dias_para_periodo_prueba ?? 999));
+  }, [items, soloPeriodoPrueba]);
+
   return (
     <div className="space-y-6">
       {/* Breadcrumb Header */}
       <PageBreadcrumb pageTitle={["Infraestructura", "Infraestructura General"]} />
 
       {/* Summary KPI Cards */}
-      <PersonalStats items={items} />
+      <PersonalStats
+        items={items}
+        onOpenAlertas={() => setIsAlertasOpen(true)}
+        onFiltrarPrueba={() => setSoloPeriodoPrueba(true)}
+      />
 
       {/* Filters and Search Bar */}
       <PersonalFiltersBar onOpenNuevoEmpleado={() => setIsCrearOpen(true)} />
 
       {/* Main Personal Table */}
       <PersonalTable
-        items={items}
+        items={displayedItems}
         isLoading={isLoading}
         onSelectEmpleado={handleSelectEmpleado}
       />
@@ -74,6 +90,17 @@ export const PersonalModule: React.FC = () => {
         <ModalCrearEmpleado
           isOpen={isCrearOpen}
           onClose={() => setIsCrearOpen(false)}
+        />
+      )}
+
+      {/* Alertas de Período de Prueba Modal */}
+      {isAlertasOpen && (
+        <ModalAlertasPeriodoPrueba
+          isOpen={isAlertasOpen}
+          onClose={() => setIsAlertasOpen(false)}
+          items={items}
+          onSelectEmpleado={handleSelectEmpleado}
+          onFiltrarEnTabla={() => setSoloPeriodoPrueba(true)}
         />
       )}
     </div>

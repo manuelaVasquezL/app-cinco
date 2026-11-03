@@ -71,11 +71,30 @@ class EmpleadoLaboral(models.Model):
 
     @property
     def dias_para_periodo_prueba(self):
+        """
+        Regla Legacy 2.9 (cont_consulta_infra.php e infraestructura_cinco_sas.php:8426-8433):
+        DATEDIFF(DATE_ADD(fecha_ingreso, INTERVAL 2 MONTH), CURDATE())
+        Retorna los días restantes para culminar los 2 meses de período de prueba.
+        """
         if not self.fecha_ingreso:
             return None
-        fin_prueba = self.fecha_ingreso + timezone.timedelta(days=60)
+        import calendar
+        from datetime import date
+        year = self.fecha_ingreso.year + (self.fecha_ingreso.month + 2 - 1) // 12
+        month = (self.fecha_ingreso.month + 2 - 1) % 12 + 1
+        max_day = calendar.monthrange(year, month)[1]
+        day = min(self.fecha_ingreso.day, max_day)
+        fin_prueba = date(year, month, day)
         delta = (fin_prueba - timezone.now().date()).days
         return delta
+
+    @property
+    def en_periodo_prueba(self):
+        """
+        Indica si el colaborador se encuentra actualmente en período de prueba (>= 0 días restantes).
+        """
+        dias = self.dias_para_periodo_prueba
+        return dias is not None and dias >= 0
 
     @property
     def dias_en_empresa(self):

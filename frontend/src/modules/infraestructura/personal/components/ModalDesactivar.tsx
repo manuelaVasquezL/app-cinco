@@ -32,7 +32,7 @@ export const ModalDesactivar: React.FC<Props> = ({
   onClose,
   onSuccess,
 }) => {
-  const { updateLocalItem } = usePersonalStore();
+  const { updateLocalItem, fetchEmpleados } = usePersonalStore();
   const [motivoGH, setMotivoGH] = useState("");
   const [motivoOperaciones, setMotivoOperaciones] = useState("");
   const [fechaRetiro, setFechaRetiro] = useState(
@@ -55,14 +55,28 @@ export const ModalDesactivar: React.FC<Props> = ({
 
     setIsSubmitting(true);
     try {
-      const updated = await personalService.desactivarEmpleado(empleado.id, {
+      const res: any = await personalService.desactivarEmpleado(empleado.id, {
         motivo_retiro_gh: motivoGH.trim().toUpperCase(),
         motivo_retiro_operaciones: motivoOperaciones.trim().toUpperCase(),
         fecha_retiro: fechaRetiro,
       });
 
-      toast.success(`Empleado ${empleado.nombre_completo} desactivado del sistema.`);
-      updateLocalItem(updated);
+      const successMsg = res?.msg || `Empleado ${empleado.nombre_completo} desactivado del sistema.`;
+      toast.success(successMsg);
+      if (res?.auxiliares_desvinculados && res.auxiliares_desvinculados.length > 0) {
+        toast.info(
+          `Se desvincularon ${res.auxiliares_desvinculados.length} integrante(s) de la cuadrilla a "1 - SIN ASIGNAR".`,
+          { duration: 6000 }
+        );
+        await fetchEmpleados();
+      } else {
+        updateLocalItem({
+          ...empleado,
+          estado: "INACTIVO",
+          movil: "Z - FUERA DE OPERACION",
+          placa_vehiculo: null,
+        } as any);
+      }
       onSuccess?.();
       onClose();
     } catch (err: unknown) {
@@ -118,6 +132,16 @@ export const ModalDesactivar: React.FC<Props> = ({
             </ul>
           </div>
         </div>
+
+        {/* Alerta Regla de Cuadrilla */}
+        {empleado.movil && empleado.movil.toUpperCase().includes("TIRAN") && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300 flex items-start gap-2">
+            <span className="font-bold text-amber-600 dark:text-amber-400">ℹ Regla de Cuadrilla:</span>
+            <span>
+              Este colaborador está asignado a la cuadrilla <strong>{empleado.movil}</strong>. Si al retirarlo no queda ningún otro técnico activo, los auxiliares asociados se desvincularán automáticamente a <strong>"1 - SIN ASIGNAR"</strong>.
+            </span>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">

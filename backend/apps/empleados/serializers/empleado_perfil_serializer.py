@@ -21,6 +21,7 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
     padrino_nombre = serializers.ReadOnlyField(source='padrino.nombre_completo')
     entregado_por_nombre = serializers.ReadOnlyField(source='entregado_por.nombre_completo')
     dias_para_periodo_prueba = serializers.ReadOnlyField()
+    en_periodo_prueba = serializers.ReadOnlyField()
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
@@ -34,6 +35,19 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
         ]:
             if date_field in data and data[date_field] in ('', None):
                 data[date_field] = None
+
+        # Autocálculo de 6 meses para etapas de Aprendiz SENA (Regla Legacy 2.8)
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+        if data.get('practica_lectiva_inicio') and not data.get('practica_lectiva_fin'):
+            fin_calc = EmpleadoWorkflowService.calcular_seis_meses_despues(data['practica_lectiva_inicio'])
+            if fin_calc:
+                data['practica_lectiva_fin'] = fin_calc.isoformat()
+
+        if data.get('practica_productiva_inicio') and not data.get('practica_productiva_fin'):
+            fin_calc = EmpleadoWorkflowService.calcular_seis_meses_despues(data['practica_productiva_inicio'])
+            if fin_calc:
+                data['practica_productiva_fin'] = fin_calc.isoformat()
+
         return super().to_internal_value(data)
 
     class Meta:
@@ -66,6 +80,7 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
             'entregado_por',
             'entregado_por_nombre',
             'dias_para_periodo_prueba',
+            'en_periodo_prueba',
             'practica_lectiva_inicio',
             'practica_lectiva_fin',
             'practica_productiva_inicio',
@@ -255,6 +270,9 @@ class EmpleadoAuditoriaLogSerializer(serializers.ModelSerializer):
 
     def get_usuario_nombre(self, obj):
         if obj.usuario:
+            perfil = getattr(obj.usuario, 'empleado_perfil', None)
+            if perfil and getattr(perfil, 'nombre_completo', None):
+                return perfil.nombre_completo
             return obj.usuario.get_full_name() or obj.usuario.username
         return 'Sistema'
 
@@ -272,6 +290,7 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
     etapa_induccion = serializers.CharField(source='laboral.etapa_induccion', read_only=True)
     fecha_ingreso = serializers.DateField(source='laboral.fecha_ingreso', read_only=True)
     dias_para_periodo_prueba = serializers.IntegerField(source='laboral.dias_para_periodo_prueba', read_only=True)
+    en_periodo_prueba = serializers.BooleanField(read_only=True)
     placa_vehiculo = serializers.CharField(source='movilidad.placa_vehiculo', read_only=True)
     estado_alturas = serializers.CharField(source='certificaciones_sst.estado_alturas', read_only=True)
 
@@ -295,6 +314,7 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
             'etapa_induccion',
             'fecha_ingreso',
             'dias_para_periodo_prueba',
+            'en_periodo_prueba',
             'dias_en_empresa',
             'placa_vehiculo',
             'estado_alturas',
@@ -303,6 +323,35 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
 
 
 # Serializer Completo para Detalle (Ficha con Pestañas)
+def _normalize_audit_val(val):
+    if val is None or val == 'None':
+        return ''
+    if hasattr(val, 'nombre_completo'):
+        return str(val.nombre_completo).strip()
+    if hasattr(val, 'isoformat'):
+        return val.isoformat()
+    if isinstance(val, bool):
+        return 'SI' if val else 'NO'
+    return str(val).strip()
+
+
+def _compute_audit_diff(antes_dict, nuevos_dict):
+    """
+    Compara dos estados y devuelve únicamente las claves con diferencias reales,
+    evitando registrar datos redundantes o generar logs cuando nada ha cambiado.
+    """
+    diff_antes = {}
+    diff_nuevos = {}
+    all_keys = set(antes_dict.keys()) | set(nuevos_dict.keys())
+    for k in all_keys:
+        v_ant = _normalize_audit_val(antes_dict.get(k))
+        v_nue = _normalize_audit_val(nuevos_dict.get(k))
+        if v_ant != v_nue:
+            diff_antes[k] = v_ant
+            diff_nuevos[k] = v_nue
+    return diff_antes, diff_nuevos
+
+
 class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(read_only=True)
     nombre_completo = serializers.ReadOnlyField()
@@ -375,15 +424,18 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
 
             if user and validated_data:
                 from apps.empleados.models import EmpleadoAuditoriaLog
-                EmpleadoAuditoriaLog.objects.create(
-                    empleado=instance,
-                    usuario=user,
-                    accion='ACTUALIZACION_PERFIL',
-                    tabla_afectada='empleados_perfil',
-                    datos_anteriores={k: str(v) for k, v in perfil_antes.items()},
-                    datos_nuevos={k: str(getattr(instance, k, '')) for k in validated_data.keys()},
-                    ip_origen=ip
-                )
+                perfil_nuevos = {k: getattr(instance, k, '') for k in validated_data.keys()}
+                diff_antes, diff_nuevos = _compute_audit_diff(perfil_antes, perfil_nuevos)
+                if diff_antes:
+                    EmpleadoAuditoriaLog.objects.create(
+                        empleado=instance,
+                        usuario=user,
+                        accion='ACTUALIZACION_PERFIL',
+                        tabla_afectada='empleados_perfil',
+                        datos_anteriores=diff_antes,
+                        datos_nuevos=diff_nuevos,
+                        ip_origen=ip
+                    )
 
             if laboral_data:
                 from apps.empleados.models import EmpleadoLaboral, EmpleadoAuditoriaLog
@@ -393,114 +445,167 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
                 lab_antes = {}
                 if lab_instance:
                     for k in laboral_data.keys():
-                        val = getattr(lab_instance, k, None)
-                        lab_antes[k] = val.id if hasattr(val, 'id') else val
+                        lab_antes[k] = getattr(lab_instance, k, None)
+
+                movil_ant = getattr(lab_instance, 'movil', None) if lab_instance else None
+                supervisor_ant = getattr(lab_instance, 'supervisor_id', None) if lab_instance else None
+                area_ant = getattr(lab_instance, 'area', None) if lab_instance else None
+                carpeta_ant = getattr(lab_instance, 'carpeta', None) if lab_instance else None
 
                 lab_obj, _ = EmpleadoLaboral.objects.update_or_create(empleado=instance, defaults=laboral_data)
 
-                # Si es técnico y cambió de móvil, sincronizar cuadrilla (Regla PHP legacy)
-                if lab_antes.get('movil') != lab_obj.movil and lab_obj.cargo == 'TECNICO':
-                    try:
-                        EmpleadoWorkflowService.sincronizar_cuadrilla_tecnico_auxiliar(
-                            tecnico_perfil=instance,
-                            nueva_movil=lab_obj.movil or '',
-                            user_operator=user,
-                            ip_address=ip
-                        )
-                    except Exception:
-                        pass
+                cargo_actual = (lab_obj.cargo or '').upper()
+                is_auxiliar = 'AUXILIAR' in cargo_actual
+                is_tecnico = 'TECNICO' in cargo_actual
+
+                # Regla Legacy 2.6: Auto-herencia de cuadrilla para Auxiliar al ser asignado a cuadrilla activa
+                if is_auxiliar:
+                    if lab_obj.movil and "ASIGNAR" not in lab_obj.movil.upper() and "FUERA DE OPERACION" not in lab_obj.movil.upper():
+                        try:
+                            EmpleadoWorkflowService.sincronizar_herencia_auxiliar_desde_tecnico(
+                                auxiliar_perfil=instance,
+                                user_operator=user,
+                                ip_address=ip
+                            )
+                            lab_obj.refresh_from_db()
+                        except Exception:
+                            pass
+                elif is_tecnico:
+                    cambio_movil = movil_ant != lab_obj.movil
+                    cambio_datos = (
+                        supervisor_ant != lab_obj.supervisor_id or
+                        area_ant != lab_obj.area or
+                        carpeta_ant != lab_obj.carpeta
+                    )
+                    if cambio_movil or cambio_datos:
+                        try:
+                            EmpleadoWorkflowService.sincronizar_cuadrilla_tecnico_auxiliar(
+                                tecnico_perfil=instance,
+                                nueva_movil=lab_obj.movil or '',
+                                movil_anterior=movil_ant,
+                                user_operator=user,
+                                ip_address=ip
+                            )
+                        except Exception:
+                            pass
 
                 if user:
-                    datos_nuevos_dict = {}
-                    for k in laboral_data.keys():
-                        val = getattr(lab_obj, k, None)
-                        datos_nuevos_dict[k] = val.id if hasattr(val, 'id') else val
-                    EmpleadoAuditoriaLog.objects.create(
-                        empleado=instance,
-                        usuario=user,
-                        accion='ACTUALIZACION_LABORAL',
-                        tabla_afectada='empleados_laboral',
-                        datos_anteriores={k: str(v) for k, v in lab_antes.items()},
-                        datos_nuevos={k: str(v) for k, v in datos_nuevos_dict.items()},
-                        ip_origen=ip
-                    )
+                    lab_nuevos = {k: getattr(lab_obj, k, None) for k in laboral_data.keys()}
+                    diff_antes, diff_nuevos = _compute_audit_diff(lab_antes, lab_nuevos)
+                    if diff_antes:
+                        EmpleadoAuditoriaLog.objects.create(
+                            empleado=instance,
+                            usuario=user,
+                            accion='ACTUALIZACION_LABORAL',
+                            tabla_afectada='empleados_laboral',
+                            datos_anteriores=diff_antes,
+                            datos_nuevos=diff_nuevos,
+                            ip_origen=ip
+                        )
+
             if contacto_data:
                 from apps.empleados.models import EmpleadoContacto, EmpleadoAuditoriaLog
                 con_instance = getattr(instance, 'contacto', None)
                 con_antes = {}
                 if con_instance:
                     for k in contacto_data.keys():
-                        val = getattr(con_instance, k, None)
-                        con_antes[k] = str(val) if val is not None else ''
+                        con_antes[k] = getattr(con_instance, k, None)
 
                 con_obj, _ = EmpleadoContacto.objects.update_or_create(empleado=instance, defaults=contacto_data)
 
                 if user:
-                    datos_nuevos_dict = {k: str(getattr(con_obj, k, '')) for k in contacto_data.keys()}
-                    EmpleadoAuditoriaLog.objects.create(
-                        empleado=instance,
-                        usuario=user,
-                        accion='ACTUALIZACION_CONTACTO',
-                        tabla_afectada='empleados_contacto',
-                        datos_anteriores=con_antes,
-                        datos_nuevos=datos_nuevos_dict,
-                        ip_origen=ip
-                    )
+                    con_nuevos = {k: getattr(con_obj, k, None) for k in contacto_data.keys()}
+                    diff_antes, diff_nuevos = _compute_audit_diff(con_antes, con_nuevos)
+                    if diff_antes:
+                        EmpleadoAuditoriaLog.objects.create(
+                            empleado=instance,
+                            usuario=user,
+                            accion='ACTUALIZACION_CONTACTO',
+                            tabla_afectada='empleados_contacto',
+                            datos_anteriores=diff_antes,
+                            datos_nuevos=diff_nuevos,
+                            ip_origen=ip
+                        )
+
             if ss_data:
-                from apps.empleados.models import EmpleadoSeguridadSocial
-                EmpleadoSeguridadSocial.objects.update_or_create(empleado=instance, defaults=ss_data)
+                from apps.empleados.models import EmpleadoSeguridadSocial, EmpleadoAuditoriaLog
+                ss_instance = getattr(instance, 'seguridad_social', None)
+                ss_antes = {}
+                if ss_instance:
+                    for k in ss_data.keys():
+                        ss_antes[k] = getattr(ss_instance, k, None)
+
+                ss_obj, _ = EmpleadoSeguridadSocial.objects.update_or_create(empleado=instance, defaults=ss_data)
+
+                if user:
+                    ss_nuevos = {k: getattr(ss_obj, k, None) for k in ss_data.keys()}
+                    diff_antes, diff_nuevos = _compute_audit_diff(ss_antes, ss_nuevos)
+                    if diff_antes:
+                        EmpleadoAuditoriaLog.objects.create(
+                            empleado=instance,
+                            usuario=user,
+                            accion='ACTUALIZACION_SEGURIDAD_SOCIAL',
+                            tabla_afectada='empleados_seguridad_social',
+                            datos_anteriores=diff_antes,
+                            datos_nuevos=diff_nuevos,
+                            ip_origen=ip
+                        )
+
             if sst_data:
                 from apps.empleados.models import EmpleadoCertificacionesSST, EmpleadoAuditoriaLog
                 sst_instance = getattr(instance, 'certificaciones_sst', None)
                 sst_antes = {}
                 if sst_instance:
                     for k in sst_data.keys():
-                        val = getattr(sst_instance, k, None)
-                        sst_antes[k] = str(val) if val is not None else ''
+                        sst_antes[k] = getattr(sst_instance, k, None)
 
                 sst_obj, _ = EmpleadoCertificacionesSST.objects.update_or_create(empleado=instance, defaults=sst_data)
 
                 if user:
-                    datos_nuevos_dict = {k: str(getattr(sst_obj, k, '')) for k in sst_data.keys()}
-                    EmpleadoAuditoriaLog.objects.create(
-                        empleado=instance,
-                        usuario=user,
-                        accion='ACTUALIZACION_SST',
-                        tabla_afectada='empleados_certificaciones_sst',
-                        datos_anteriores=sst_antes,
-                        datos_nuevos=datos_nuevos_dict,
-                        ip_origen=ip
-                    )
+                    sst_nuevos = {k: getattr(sst_obj, k, None) for k in sst_data.keys()}
+                    diff_antes, diff_nuevos = _compute_audit_diff(sst_antes, sst_nuevos)
+                    if diff_antes:
+                        EmpleadoAuditoriaLog.objects.create(
+                            empleado=instance,
+                            usuario=user,
+                            accion='ACTUALIZACION_SST',
+                            tabla_afectada='empleados_certificaciones_sst',
+                            datos_anteriores=diff_antes,
+                            datos_nuevos=diff_nuevos,
+                            ip_origen=ip
+                        )
+
             if dot_data:
                 from apps.empleados.models import EmpleadoDotacionActivos, EmpleadoAuditoriaLog
                 dot_instance = getattr(instance, 'dotacion_activos', None)
                 dot_antes = {}
                 if dot_instance:
                     for k in dot_data.keys():
-                        val = getattr(dot_instance, k, None)
-                        dot_antes[k] = str(val) if val is not None else ''
+                        dot_antes[k] = getattr(dot_instance, k, None)
 
                 dot_obj, _ = EmpleadoDotacionActivos.objects.update_or_create(empleado=instance, defaults=dot_data)
 
                 if user:
-                    datos_nuevos_dict = {k: str(getattr(dot_obj, k, '')) for k in dot_data.keys()}
-                    EmpleadoAuditoriaLog.objects.create(
-                        empleado=instance,
-                        usuario=user,
-                        accion='ACTUALIZACION_DOTACION',
-                        tabla_afectada='empleados_dotacion_activos',
-                        datos_anteriores=dot_antes,
-                        datos_nuevos=datos_nuevos_dict,
-                        ip_origen=ip
-                    )
+                    dot_nuevos = {k: getattr(dot_obj, k, None) for k in dot_data.keys()}
+                    diff_antes, diff_nuevos = _compute_audit_diff(dot_antes, dot_nuevos)
+                    if diff_antes:
+                        EmpleadoAuditoriaLog.objects.create(
+                            empleado=instance,
+                            usuario=user,
+                            accion='ACTUALIZACION_DOTACION',
+                            tabla_afectada='empleados_dotacion_activos',
+                            datos_anteriores=diff_antes,
+                            datos_nuevos=diff_nuevos,
+                            ip_origen=ip
+                        )
+
             if mov_data:
                 from apps.empleados.models import EmpleadoMovilidad, EmpleadoAuditoriaLog
                 mov_instance = getattr(instance, 'movilidad', None)
                 mov_antes = {}
                 if mov_instance:
                     for k in mov_data.keys():
-                        val = getattr(mov_instance, k, None)
-                        mov_antes[k] = str(val) if val is not None else ''
+                        mov_antes[k] = getattr(mov_instance, k, None)
 
                 new_placa = mov_data.get('placa_vehiculo')
                 if new_placa:
@@ -519,23 +624,25 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
                                 accion='LIBERACION_PLACA',
                                 tabla_afectada='empleados_movilidad',
                                 datos_anteriores={'placa_vehiculo': new_placa},
-                                datos_nuevos={'placa_vehiculo': None},
+                                datos_nuevos={'placa_vehiculo': ''},
                                 ip_origen=ip
                             )
 
                 mov_obj, _ = EmpleadoMovilidad.objects.update_or_create(empleado=instance, defaults=mov_data)
 
                 if user:
-                    datos_nuevos_dict = {k: str(getattr(mov_obj, k, '')) for k in mov_data.keys()}
-                    EmpleadoAuditoriaLog.objects.create(
-                        empleado=instance,
-                        usuario=user,
-                        accion='ACTUALIZACION_MOVILIDAD',
-                        tabla_afectada='empleados_movilidad',
-                        datos_anteriores=mov_antes,
-                        datos_nuevos=datos_nuevos_dict,
-                        ip_origen=ip
-                    )
+                    mov_nuevos = {k: getattr(mov_obj, k, None) for k in mov_data.keys()}
+                    diff_antes, diff_nuevos = _compute_audit_diff(mov_antes, mov_nuevos)
+                    if diff_antes:
+                        EmpleadoAuditoriaLog.objects.create(
+                            empleado=instance,
+                            usuario=user,
+                            accion='ACTUALIZACION_MOVILIDAD',
+                            tabla_afectada='empleados_movilidad',
+                            datos_anteriores=diff_antes,
+                            datos_nuevos=diff_nuevos,
+                            ip_origen=ip
+                        )
 
             return instance
 
@@ -561,13 +668,33 @@ class AsignarPlacaSerializer(serializers.Serializer):
 
 
 class DesactivarEmpleadoSerializer(serializers.Serializer):
-    fecha_egreso = serializers.DateField(required=True)
-    motivo = serializers.CharField(required=True, max_length=150)
-    motivo_real = serializers.CharField(default='', max_length=255, allow_blank=True)
+    fecha_egreso = serializers.DateField(required=False, allow_null=True)
+    fecha_retiro = serializers.DateField(required=False, allow_null=True)
+    motivo = serializers.CharField(required=False, max_length=150, allow_blank=True)
+    motivo_retiro_gh = serializers.CharField(required=False, max_length=150, allow_blank=True)
+    motivo_real = serializers.CharField(required=False, default='', max_length=255, allow_blank=True)
+    motivo_retiro_operaciones = serializers.CharField(required=False, max_length=255, allow_blank=True)
+
+    def validate(self, attrs):
+        fecha = attrs.get('fecha_egreso') or attrs.get('fecha_retiro')
+        if not fecha:
+            from django.utils import timezone
+            fecha = timezone.now().date()
+        attrs['fecha_egreso'] = fecha
+
+        motivo = attrs.get('motivo') or attrs.get('motivo_retiro_gh')
+        if not motivo:
+            raise serializers.ValidationError({'motivo': 'El motivo de retiro es obligatorio.'})
+        attrs['motivo'] = motivo
+
+        motivo_real = attrs.get('motivo_real') or attrs.get('motivo_retiro_operaciones') or ''
+        attrs['motivo_real'] = motivo_real
+        return attrs
 
 
 class ReactivarEmpleadoSerializer(serializers.Serializer):
-    movil_inicial = serializers.CharField(default='1 - SIN ASIGNAR', max_length=50)
+    movil_inicial = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=50, default=None)
+    observaciones = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class GestionarContactoEmergenciaSerializer(serializers.Serializer):
@@ -586,3 +713,12 @@ class GestionarCuentaBancariaSerializer(serializers.Serializer):
     titular = serializers.CharField(default='', max_length=150, allow_blank=True)
     cc_titular = serializers.CharField(default='', max_length=50, allow_blank=True)
     cuenta_id = serializers.IntegerField(required=False, allow_null=True)
+
+class GestionarPersonaACargoSerializer(serializers.Serializer):
+    persona_id = serializers.IntegerField(required=False, allow_null=True)
+    nombre_completo = serializers.CharField(max_length=150, required=True)
+    parentesco = serializers.CharField(max_length=50, required=True)
+    tipo_documento = serializers.CharField(max_length=20, required=False, allow_blank=True, allow_null=True)
+    numero_documento = serializers.CharField(max_length=50, required=False, allow_blank=True, allow_null=True)
+    fecha_nacimiento = serializers.DateField(required=False, allow_null=True)
+

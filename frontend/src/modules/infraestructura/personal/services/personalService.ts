@@ -12,7 +12,24 @@ import {
   EmpleadoAuditoriaLog,
   EmpleadoDocumentoAdjunto,
   PersonalFilterParams,
+  PersonalEstadisticas,
+  EmpleadoPersonaACargo,
+  GestionarPersonaACargoPayload,
 } from "@/types/empleado";
+
+export interface CuadrillaInfoResponse {
+  existe_tecnico: boolean;
+  tecnico: {
+    id: number;
+    nombre_completo: string;
+    cargo: string;
+    supervisor_id: number | null;
+    supervisor_nombre: string | null;
+    area: string;
+    carpeta: string;
+    medio_transporte: string | null;
+  } | null;
+}
 
 export interface SupervisorOption {
   id: number;
@@ -36,10 +53,20 @@ export const personalService = {
       if (params.etapa_induccion) cleanParams.etapa_induccion = params.etapa_induccion;
       if (params.movil) cleanParams.movil = params.movil;
       if (params.ordering) cleanParams.ordering = params.ordering;
+      if (params.periodo_prueba) cleanParams.periodo_prueba = "true";
     }
     const response = await api.get<EmpleadoPerfilItem[]>("/empleados/perfiles/", {
       params: cleanParams,
     });
+    return response.data;
+  },
+
+
+  /**
+   * Obtiene estadísticas y métricas globales de personal (totales, activos, período de prueba).
+   */
+  async getEstadisticas(): Promise<PersonalEstadisticas> {
+    const response = await api.get<PersonalEstadisticas>("/empleados/perfiles/estadisticas/");
     return response.data;
   },
 
@@ -218,6 +245,70 @@ export const personalService = {
    */
   async getSupervisores(): Promise<SupervisorOption[]> {
     const response = await api.get<SupervisorOption[]>("/empleados/perfiles/supervisores/");
+    return response.data;
+  },
+  /**
+   * Obtiene información de la cuadrilla (técnico asignado, supervisor, etc.)
+   */
+  async getCuadrillaInfo(params: string | { movil?: string; cargo?: string }): Promise<CuadrillaInfoResponse> {
+    const query = typeof params === "string" ? { movil: params } : params;
+    const response = await api.get<CuadrillaInfoResponse>("/empleados/perfiles/cuadrilla-info/", { params: query });
+    return response.data;
+  },
+
+  /**
+   * Registra o actualiza una persona a cargo (beneficiario).
+   */
+  async gestionarPersonaACargo(
+    id: number,
+    payload: GestionarPersonaACargoPayload
+  ): Promise<EmpleadoPersonaACargo> {
+    const response = await api.post<EmpleadoPersonaACargo>(
+      `/empleados/perfiles/${id}/personas-a-cargo/`,
+      payload
+    );
+    return response.data;
+  },
+
+  /**
+   * Elimina una persona a cargo.
+   */
+  async eliminarPersonaACargo(
+    empleadoId: number,
+    personaId: number
+  ): Promise<{ success: boolean; msg: string }> {
+    const response = await api.delete<{ success: boolean; msg: string }>(
+      `/empleados/perfiles/${empleadoId}/personas-a-cargo/${personaId}/`
+    );
+    return response.data;
+  },
+
+  /**
+   * Consulta la móvil previa de un empleado inactivo para reactivación.
+   */
+  async getMovilPrevia(id: number): Promise<{ movil_previa: string | null; mensaje?: string }> {
+    const response = await api.get<{ movil_previa: string | null; mensaje?: string }>(
+      `/empleados/perfiles/${id}/movil-previa/`
+    );
+    return response.data;
+  },
+
+  /**
+   * Sube la foto de perfil del empleado.
+   */
+  async subirFotoPerfil(
+    id: number,
+    file: File
+  ): Promise<{ success: boolean; foto_url: string; message: string }> {
+    const formData = new FormData();
+    formData.append("foto", file);
+    const response = await api.post<{ success: boolean; foto_url: string; message: string }>(
+      `/empleados/perfiles/${id}/subir-foto/`,
+      formData,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      }
+    );
     return response.data;
   },
 };

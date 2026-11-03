@@ -73,6 +73,7 @@ export interface EmpleadoLaboral {
   entregado_por?: number | null;
   entregado_por_nombre?: string | null;
   dias_para_periodo_prueba?: number | null;
+  en_periodo_prueba?: boolean;
   auxilio_movilizacion?: number | string;
   bono_fijo?: number | string;
   bono_variable?: number | string;
@@ -283,6 +284,7 @@ export interface EmpleadoPerfilItem {
 
   // Métricas calculadas
   dias_en_empresa: number;
+  dias_para_periodo_prueba?: number | null;
   en_periodo_prueba: boolean;
   proximo_a_vencer_contrato: boolean;
   documentos_completos: boolean;
@@ -378,6 +380,16 @@ export interface DesactivarEmpleadoPayload {
 
 export interface ReactivarEmpleadoPayload {
   observaciones?: string;
+  movil_inicial?: string;
+}
+
+export interface GestionarPersonaACargoPayload {
+  persona_id?: number | null;
+  nombre_completo: string;
+  parentesco: string;
+  tipo_documento?: string | null;
+  numero_documento?: string | null;
+  fecha_nacimiento?: string | null;
 }
 
 export interface GestionarCuentaBancariaPayload {
@@ -385,6 +397,16 @@ export interface GestionarCuentaBancariaPayload {
   tipo_cuenta: 'AHORROS' | 'CORRIENTE' | string;
   numero_cuenta: string;
   es_nomina?: boolean;
+}
+
+export interface PersonalEstadisticas {
+  total: number;
+  activos: number;
+  en_formacion: number;
+  inactivos: number;
+  con_vehiculo: number;
+  en_prueba: number;
+  prueba_critica: number;
 }
 
 export interface PersonalFilterParams {
@@ -396,4 +418,5 @@ export interface PersonalFilterParams {
   etapa_induccion?: string;
   movil?: string;
   ordering?: string;
+  periodo_prueba?: boolean | string;
 }

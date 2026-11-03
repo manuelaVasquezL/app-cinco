@@ -103,6 +103,18 @@ class EmpleadoPerfilViewSet(ModelViewSet):
         if etapa_induccion:
             qs = qs.filter(laboral__etapa_induccion=etapa_induccion.upper())
 
+        # Filtro de colaboradores en período de prueba (Regla Legacy 2.9 / getInfoContratosPeriodoPrueba)
+        periodo_prueba = params.get('periodo_prueba')
+        if periodo_prueba and str(periodo_prueba).lower() in ['true', '1', 'si']:
+            from datetime import timedelta
+            from django.utils import timezone
+            limite = timezone.now().date() - timedelta(days=62)
+            qs = qs.filter(
+                estado='ACTIVO',
+                laboral__fecha_ingreso__gte=limite,
+                laboral__fecha_ingreso__lte=timezone.now().date()
+            ).order_by('laboral__fecha_ingreso')
+
         search = params.get('search')
         if search:
             search = search.strip()
@@ -114,6 +126,9 @@ class EmpleadoPerfilViewSet(ModelViewSet):
                 Q(laboral__movil__icontains=search) |
                 Q(movilidad__placa_vehiculo__icontains=search)
             )
+
+        if periodo_prueba and str(periodo_prueba).lower() in ['true', '1', 'si']:
+            return qs.order_by('laboral__fecha_ingreso')
 
         return qs.order_by('apellidos', 'nombres')
 
@@ -210,16 +225,32 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             user_operator=request.user,
             ip_address=ip_address
         )
+        auxiliares = getattr(perfil, 'auxiliares_desvinculados', [])
+        msg = f'Empleado {perfil.nombre_completo} retirado del sistema.'
+        if auxiliares:
+            cnt = len(auxiliares)
+            nombres_aux = ', '.join([a['nombre_completo'] for a in auxiliares[:3]])
+            msg += f' Se desvincularon automáticamente {cnt} colaborador(es) de la cuadrilla ({nombres_aux}) a "1 - SIN ASIGNAR".'
+
         return Response({
             'success': True,
-            'msg': f'Empleado {perfil.nombre_completo} retirado del sistema.',
+            'msg': msg,
             'estado': perfil.estado,
+            'auxiliares_desvinculados': auxiliares,
         })
+
+    @action(detail=True, methods=['get'], url_path='movil-previa')
+    def movil_previa(self, request, pk=None):
+        """
+        Consulta el móvil previo registrado antes de la desactivación (Regla Legacy 2.7).
+        """
+        movil = EmpleadoWorkflowService.obtener_movil_previa_desactivacion(pk)
+        return Response({'movil_previa': movil})
 
     @action(detail=True, methods=['post'], url_path='reactivar')
     def reactivar(self, request, pk=None):
         """
-        Reactivación de colaborador inactivo con restablecimiento de credenciales.
+        Reactivación de colaborador inactivo con restablecimiento de credenciales y recuperación de móvil (Regla Legacy 2.7).
         """
         serializer = ReactivarEmpleadoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -227,14 +258,16 @@ class EmpleadoPerfilViewSet(ModelViewSet):
         ip_address = request.META.get('REMOTE_ADDR')
         perfil = EmpleadoWorkflowService.reactivar_empleado(
             empleado_id=pk,
-            movil_inicial=serializer.validated_data.get('movil_inicial', '1 - SIN ASIGNAR'),
+            movil_inicial=serializer.validated_data.get('movil_inicial'),
+            observaciones=serializer.validated_data.get('observaciones', ''),
             user_operator=request.user,
             ip_address=ip_address
         )
         return Response({
             'success': True,
-            'msg': f'Empleado {perfil.nombre_completo} reactivado exitosamente.',
+            'msg': f'Empleado {perfil.nombre_completo} reactivado exitosamente con móvil "{perfil.laboral.movil}".',
             'estado': perfil.estado,
+            'movil': perfil.laboral.movil,
         })
 
     @action(detail=True, methods=['post'], url_path='cuentas-bancarias')
@@ -302,12 +335,55 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             'msg': 'Contacto de emergencia eliminado exitosamente.'
         }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'], url_path='personas-a-cargo')
+    def gestionar_persona_a_cargo(self, request, pk=None):
+        """
+        Alta o actualización de persona a cargo / beneficiario (empleados_personas_a_cargo).
+        """
+        from apps.empleados.serializers.empleado_perfil_serializer import (
+            GestionarPersonaACargoSerializer,
+            EmpleadoPersonaACargoSerializer,
+        )
+        serializer = GestionarPersonaACargoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        ip_address = request.META.get('REMOTE_ADDR')
+        persona = EmpleadoWorkflowService.gestionar_persona_a_cargo(
+            empleado_id=pk,
+            nombre_completo=serializer.validated_data['nombre_completo'],
+            parentesco=serializer.validated_data['parentesco'],
+            tipo_documento=serializer.validated_data.get('tipo_documento'),
+            numero_documento=serializer.validated_data.get('numero_documento'),
+            fecha_nacimiento=serializer.validated_data.get('fecha_nacimiento'),
+            persona_id=serializer.validated_data.get('persona_id'),
+            user_operator=request.user,
+            ip_address=ip_address
+        )
+        return Response(EmpleadoPersonaACargoSerializer(persona).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['delete'], url_path=r'personas-a-cargo/(?P<persona_id>[^/.]+)')
+    def eliminar_persona_a_cargo(self, request, pk=None, persona_id=None):
+        """
+        Eliminación de persona a cargo con traza de auditoría.
+        """
+        ip_address = request.META.get('REMOTE_ADDR')
+        EmpleadoWorkflowService.eliminar_persona_a_cargo(
+            empleado_id=pk,
+            persona_id=int(persona_id),
+            user_operator=request.user,
+            ip_address=ip_address
+        )
+        return Response({
+            'success': True,
+            'msg': 'Persona a cargo eliminada exitosamente.'
+        }, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['get'], url_path='auditoria')
     def auditoria(self, request, pk=None):
         """
         Consulta del historial cronológico de auditoría y diffs del colaborador.
         """
-        logs = EmpleadoAuditoriaLog.objects.filter(empleado_id=pk).select_related('usuario').order_by('-created_at')
+        logs = EmpleadoAuditoriaLog.objects.filter(empleado_id=pk).select_related('usuario', 'usuario__empleado_perfil').order_by('-created_at')
         serializer = EmpleadoAuditoriaLogSerializer(logs, many=True)
         return Response(serializer.data)
 
@@ -450,6 +526,45 @@ class EmpleadoPerfilViewSet(ModelViewSet):
 
         return Response({'success': True, 'msg': f'Documento {tipo} eliminado correctamente.'})
 
+    @action(detail=False, methods=['get'], url_path='estadisticas')
+    def estadisticas(self, request):
+        """
+        Métricas consolidadas de personal para KPIs globales y contadores de alertas (período de prueba).
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+        hoy = timezone.now().date()
+        limite = hoy - timedelta(days=62)
+
+        total_activos = EmpleadoPerfil.objects.filter(estado='ACTIVO').count()
+        total_formacion = EmpleadoPerfil.objects.filter(estado='EN_FORMACION').count()
+        total_inactivos = EmpleadoPerfil.objects.filter(estado='INACTIVO').count()
+        total_vehiculo = EmpleadoPerfil.objects.filter(
+            movilidad__placa_vehiculo__isnull=False
+        ).exclude(movilidad__placa_vehiculo='').count()
+
+        total_prueba = EmpleadoPerfil.objects.filter(
+            estado='ACTIVO',
+            laboral__fecha_ingreso__gte=limite,
+            laboral__fecha_ingreso__lte=hoy
+        ).count()
+
+        total_prueba_critica = EmpleadoPerfil.objects.filter(
+            estado='ACTIVO',
+            laboral__fecha_ingreso__gte=limite,
+            laboral__fecha_ingreso__lte=hoy - timedelta(days=47)
+        ).count()
+
+        return Response({
+            'total': total_activos + total_formacion + total_inactivos,
+            'activos': total_activos,
+            'en_formacion': total_formacion,
+            'inactivos': total_inactivos,
+            'con_vehiculo': total_vehiculo,
+            'en_prueba': total_prueba,
+            'prueba_critica': total_prueba_critica,
+        })
+
     @action(detail=False, methods=['get'], url_path='supervisores')
     def lista_supervisores(self, request):
         """
@@ -473,3 +588,113 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             for s in supervisores
         ]
         return Response(resultado)
+
+    @action(detail=False, methods=['get'], url_path='cuadrilla-info')
+    def cuadrilla_info(self, request):
+        """
+        Consulta información operativa de la cuadrilla y del técnico activo asignado (Regla Legacy 2.6).
+        Permite auto-completar y validar supervisor, área, carpeta y transporte al vincular un auxiliar a un móvil.
+        """
+        movil = (request.query_params.get('movil') or '').strip()
+        if not movil or 'ASIGNAR' in movil.upper() or 'FUERA DE OPERACION' in movil.upper():
+            return Response({'existe_tecnico': False, 'tecnico': None})
+
+        tec_lab = EmpleadoLaboral.objects.filter(
+            movil__iexact=movil,
+            cargo__icontains='TECNICO',
+            empleado__estado='ACTIVO'
+        ).select_related('supervisor', 'empleado', 'empleado__movilidad').first()
+
+        if not tec_lab:
+            return Response({'existe_tecnico': False, 'tecnico': None})
+
+        tec_mov = getattr(tec_lab.empleado, 'movilidad', None)
+        return Response({
+            'existe_tecnico': True,
+            'tecnico': {
+                'id': tec_lab.empleado_id,
+                'nombre_completo': tec_lab.empleado.nombre_completo,
+                'cargo': tec_lab.cargo,
+                'supervisor_id': tec_lab.supervisor_id,
+                'supervisor_nombre': tec_lab.supervisor.nombre_completo if tec_lab.supervisor else None,
+                'area': tec_lab.area,
+                'carpeta': tec_lab.carpeta,
+                'medio_transporte': tec_mov.medio_transporte if tec_mov else None,
+            }
+        })
+
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser], url_path='subir-foto')
+    def subir_foto(self, request, pk=None):
+        """
+        Carga y actualiza la fotografía de perfil del colaborador (Regla Legacy: save_foto).
+        Almacena el archivo en /media/infraestructura/fotos_empleados/{numero_documento}_{timestamp}{ext} y actualiza perfil.foto_url.
+        """
+        import os
+        import time
+        from django.conf import settings
+
+        perfil = self.get_object()
+        archivo = (
+            request.FILES.get('foto') or
+            request.FILES.get('file') or
+            request.FILES.get('save_foto') or
+            request.FILES.get('imagen')
+        )
+        if not archivo:
+            return Response(
+                {'error': 'No se proporcionó ningún archivo de imagen.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar tipo de archivo
+        ext = os.path.splitext(archivo.name)[1].lower()
+        if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
+            return Response(
+                {'error': 'Formato no válido. Debe ser una imagen en formato JPG, PNG o WebP.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar tamaño máximo (5MB)
+        if archivo.size > 5 * 1024 * 1024:
+            return Response(
+                {'error': 'El archivo supera el tamaño máximo permitido de 5 MB.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Directorio fotos_empleados dentro de media/infraestructura/
+        sub_dir = os.path.join(settings.MEDIA_ROOT, 'infraestructura', 'fotos_empleados')
+        os.makedirs(sub_dir, exist_ok=True)
+
+        timestamp = int(time.time())
+        nombre_guardado = f"{perfil.numero_documento}_{timestamp}{ext}"
+        ruta_absoluta = os.path.join(sub_dir, nombre_guardado)
+
+        with open(ruta_absoluta, 'wb+') as destino:
+            for chunk in archivo.chunks():
+                destino.write(chunk)
+
+        archivo_url = f"/media/infraestructura/fotos_empleados/{nombre_guardado}"
+        foto_anterior = perfil.foto_url
+
+        perfil.foto_url = archivo_url
+        perfil.save(update_fields=['foto_url', 'updated_at'])
+
+        # Auditoría
+        try:
+            EmpleadoWorkflowService.registrar_auditoria(
+                empleado=perfil,
+                usuario=request.user if request.user.is_authenticated else None,
+                accion='ACTUALIZACION',
+                tabla_afectada='empleados_perfiles',
+                datos_anteriores={'foto_url': foto_anterior},
+                datos_nuevos={'foto_url': archivo_url},
+                ip_origen=request.META.get('REMOTE_ADDR')
+            )
+        except Exception:
+            pass
+
+        return Response({
+            'success': True,
+            'message': 'Foto de perfil actualizada exitosamente.',
+            'foto_url': archivo_url
+        }, status=status.HTTP_200_OK)

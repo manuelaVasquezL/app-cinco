@@ -2,19 +2,30 @@
 "use client";
 
 import React from "react";
-import { Users, UserCheck, GraduationCap, UserX, Car } from "lucide-react";
+import { Users, UserCheck, GraduationCap, UserX, Car, AlertTriangle, Clock } from "lucide-react";
 import { EmpleadoPerfilItem } from "@/types/empleado";
+import { usePersonalStore } from "../store/usePersonalStore";
 
 interface Props {
   items: EmpleadoPerfilItem[];
+  onOpenAlertas?: () => void;
+  onFiltrarPrueba?: () => void;
 }
 
-export const PersonalStats: React.FC<Props> = ({ items }) => {
-  const total = items.length;
-  const activos = items.filter((i) => i.estado === "ACTIVO").length;
-  const enFormacion = items.filter((i) => i.estado === "EN_FORMACION").length;
-  const inactivos = items.filter((i) => i.estado === "INACTIVO").length;
-  const conVehiculo = items.filter((i) => Boolean(i.placa_vehiculo)).length;
+export const PersonalStats: React.FC<Props> = ({ items, onOpenAlertas, onFiltrarPrueba }) => {
+  const { estadisticas } = usePersonalStore();
+
+  const total = estadisticas?.total ?? items.length;
+  const activos = estadisticas?.activos ?? items.filter((i) => i.estado === "ACTIVO").length;
+  const enFormacion = estadisticas?.en_formacion ?? items.filter((i) => i.estado === "EN_FORMACION").length;
+  const inactivos = estadisticas?.inactivos ?? items.filter((i) => i.estado === "INACTIVO").length;
+  const conVehiculo = estadisticas?.con_vehiculo ?? items.filter((i) => Boolean(i.placa_vehiculo)).length;
+  const countPrueba = estadisticas?.en_prueba ?? items.filter(
+    (i) => i.en_periodo_prueba && typeof i.dias_para_periodo_prueba === "number" && i.dias_para_periodo_prueba >= 0
+  ).length;
+  const countCritica = estadisticas?.prueba_critica ?? items.filter(
+    (i) => typeof i.dias_para_periodo_prueba === "number" && i.dias_para_periodo_prueba <= 15
+  ).length;
 
   const stats = [
     {
@@ -54,7 +65,90 @@ export const PersonalStats: React.FC<Props> = ({ items }) => {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="space-y-3">
+      {countCritica > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50/90 p-3.5 shadow-xs dark:border-rose-900/50 dark:bg-rose-950/30">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/50 dark:text-rose-400 animate-pulse">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-rose-800 dark:text-rose-300">
+                  Alerta Global: Período de Prueba por Vencer ({countCritica} colaborador{countCritica > 1 ? "es" : ""})
+                </h4>
+                <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+                  Crítico &le; 15 días
+                </span>
+              </div>
+              <p className="text-[11px] text-rose-700/90 dark:text-rose-400 mt-0.5">
+                Hay colaboradores a punto de cumplir sus 2 meses de prueba sin concepto definitivo de inducción/desempeño.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenAlertas && (
+              <button
+                type="button"
+                onClick={onOpenAlertas}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-rose-500 transition-colors cursor-pointer"
+              >
+                <span>Ver Colaboradores ({countCritica})</span>
+              </button>
+            )}
+            {onFiltrarPrueba && (
+              <button
+                type="button"
+                onClick={onFiltrarPrueba}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100/60 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300 transition-colors cursor-pointer"
+              >
+                <span>Filtrar en Tabla</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {countCritica === 0 && countPrueba > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 p-3 shadow-xs dark:border-amber-900/40 dark:bg-amber-950/20">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-amber-900 dark:text-amber-300">
+                Seguimiento de Período de Prueba ({countPrueba} colaborador{countPrueba > 1 ? "es" : ""})
+              </p>
+              <p className="text-[11px] text-amber-800/80 dark:text-amber-400">
+                Colaboradores en proceso formativo dentro de sus primeros 2 meses calendario.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenAlertas && (
+              <button
+                type="button"
+                onClick={onOpenAlertas}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-amber-500 transition-colors cursor-pointer"
+              >
+                <span>Ver Lista Completa</span>
+              </button>
+            )}
+            {onFiltrarPrueba && (
+              <button
+                type="button"
+                onClick={onFiltrarPrueba}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 transition-colors cursor-pointer"
+              >
+                <span>Filtrar en Tabla</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {stats.map((s, idx) => (
         <div
           key={idx}
@@ -74,6 +168,7 @@ export const PersonalStats: React.FC<Props> = ({ items }) => {
           </div>
         </div>
       ))}
+      </div>
     </div>
   );
 };

@@ -117,7 +117,7 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
         <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/40 dark:text-amber-300">
           <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
           <span>
-            <strong>Regla de Exclusividad:</strong> Una placa solo puede estar asignada a un colaborador a la vez. Si la placa ingresada se encuentra asignada a otro empleado, el sistema la reasignará atómicamente y registrará la liberación en la auditoría.
+            <strong>Regla de Exclusividad:</strong> Si la placa ingresada se encuentra asignada a otro empleado, el sistema la reasignará atómicamente.
           </span>
         </div>
 
@@ -179,7 +179,7 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
               className="h-4 w-4 rounded-sm border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800"
             />
             <label htmlFor="modal_sabe_conducir" className="text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-              ¿El colaborador posee habilidad comprobada de conducción? (sabe_conducir)
+              ¿El colaborador posee habilidad comprobada de conducción?
             </label>
           </div>
 
