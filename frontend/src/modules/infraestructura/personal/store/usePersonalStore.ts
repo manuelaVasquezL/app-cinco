@@ -36,9 +36,11 @@ interface PersonalState {
   fetchEmpleadoDetail: (id: number) => Promise<void>;
   fetchSupervisores: () => Promise<void>;
   setFilter: <K extends keyof PersonalFilterParams>(key: K, value: PersonalFilterParams[K]) => void;
-  setEstadoTab: (estado: EstadoEmpleado | 'TODOS' | 'PERIODO_PRUEBA') => void;
+  setEstadoTab: (estado: EstadoEmpleado | 'TODOS' | 'PERIODO_PRUEBA' | 'PRACTICAS') => void;
   soloPeriodoPrueba: boolean;
   setSoloPeriodoPrueba: (val: boolean) => void;
+  soloPracticas: boolean;
+  setSoloPracticas: (val: boolean) => void;
   resetFilters: () => void;
   clearSelected: () => void;
   updateLocalItem: (updated: EmpleadoPerfilItem | EmpleadoPerfilCompleto) => void;
@@ -68,6 +70,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   filters: { ...initialFilters },
   soloPeriodoPrueba: false,
+  soloPracticas: false,
 
   fetchEstadisticas: async () => {
     try {
@@ -98,6 +101,10 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
 
   setSoloPeriodoPrueba: (val: boolean) => {
     get().setEstadoTab(val ? 'PERIODO_PRUEBA' : 'ACTIVO');
+  },
+
+  setSoloPracticas: (val: boolean) => {
+    get().setEstadoTab(val ? 'PRACTICAS' : 'ACTIVO');
   },
 
   fetchEmpleadoDetail: async (id: number) => {
@@ -134,19 +141,34 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     if (estado === 'PERIODO_PRUEBA') {
       set((state) => ({
         soloPeriodoPrueba: true,
+        soloPracticas: false,
         filters: {
           ...state.filters,
           estado: 'ACTIVO',
           periodo_prueba: true,
+          solo_practicas: undefined,
+        },
+      }));
+    } else if (estado === 'PRACTICAS') {
+      set((state) => ({
+        soloPeriodoPrueba: false,
+        soloPracticas: true,
+        filters: {
+          ...state.filters,
+          estado: 'ACTIVO',
+          periodo_prueba: undefined,
+          solo_practicas: true,
         },
       }));
     } else {
       set((state) => ({
         soloPeriodoPrueba: false,
+        soloPracticas: false,
         filters: {
           ...state.filters,
           estado: estado === 'TODOS' ? 'all' : estado,
           periodo_prueba: undefined,
+          solo_practicas: undefined,
         },
       }));
     }
@@ -154,7 +176,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   },
 
   resetFilters: () => {
-    set({ filters: { ...initialFilters }, soloPeriodoPrueba: false });
+    set({ filters: { ...initialFilters }, soloPeriodoPrueba: false, soloPracticas: false });
     get().fetchEmpleados();
     get().fetchEstadisticas();
   },

@@ -9,6 +9,8 @@ class EmpleadoCertificacionesSST(models.Model):
     permiso_trabajo = models.CharField(max_length=100, blank=True, null=True)
     certificado_alturas_url = models.CharField(max_length=255, blank=True, null=True)
     vencimiento_alturas = models.DateField(blank=True, null=True)
+    certificado_coordinador_url = models.CharField(max_length=255, blank=True, null=True)
+    vencimiento_coordinador = models.DateField(blank=True, null=True)
     certificado_tecnico_url = models.CharField(max_length=255, blank=True, null=True)
     vencimiento_tecnico = models.DateField(blank=True, null=True)
 
@@ -27,6 +29,16 @@ class EmpleadoCertificacionesSST(models.Model):
         if self.vencimiento_alturas < hoy:
             return 'VENCIDO'
         dias_restantes = (self.vencimiento_alturas - hoy).days
+        return 'POR_VENCER' if dias_restantes <= 30 else 'VIGENTE'
+
+    @property
+    def estado_coordinador(self):
+        if not self.vencimiento_coordinador:
+            return 'NO_APLICA'
+        hoy = timezone.now().date()
+        if self.vencimiento_coordinador < hoy:
+            return 'VENCIDO'
+        dias_restantes = (self.vencimiento_coordinador - hoy).days
         return 'POR_VENCER' if dias_restantes <= 30 else 'VIGENTE'
 
     @property

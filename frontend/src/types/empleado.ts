@@ -74,6 +74,9 @@ export interface EmpleadoLaboral {
   entregado_por_nombre?: string | null;
   dias_para_periodo_prueba?: number | null;
   en_periodo_prueba?: boolean;
+  dias_para_fin_practica?: number | null;
+  etapa_practica_activa?: string | null;
+  en_practicas?: boolean;
   auxilio_movilizacion?: number | string;
   bono_fijo?: number | string;
   bono_variable?: number | string;
@@ -122,6 +125,7 @@ export interface EmpleadoSeguridadSocial {
   fondo_cesantias?: string | null;
   tipo_sangre_rh?: string | null;
   alergias_restricciones?: string | null;
+  certificado_arl_url?: string | null;
 }
 
 export interface EmpleadoCertificacionesSST {
@@ -131,6 +135,9 @@ export interface EmpleadoCertificacionesSST {
   certificado_alturas_url?: string | null;
   vencimiento_alturas?: string | null;
   estado_alturas?: string | null;
+  certificado_coordinador_url?: string | null;
+  vencimiento_coordinador?: string | null;
+  estado_coordinador?: string | null;
   certificado_tecnico_url?: string | null;
   vencimiento_tecnico?: string | null;
   estado_tecnico?: string | null;
@@ -156,6 +163,16 @@ export interface EmpleadoDotacionActivos {
   talla_calzado?: string | null;
   talla_chaqueta?: string | null;
   talla_guerrera?: string | null;
+}
+
+export interface EmpleadoDotacionComprobante {
+  id: number;
+  fecha_entrega: string;
+  observaciones?: string | null;
+  archivo_url: string;
+  subido_por?: number;
+  subido_por_nombre?: string | null;
+  created_at?: string;
 }
 
 export interface EmpleadoMovilidad {
@@ -286,6 +303,13 @@ export interface EmpleadoPerfilItem {
   dias_en_empresa: number;
   dias_para_periodo_prueba?: number | null;
   en_periodo_prueba: boolean;
+  dias_para_fin_practica?: number | null;
+  etapa_practica_activa?: string | null;
+  en_practicas?: boolean;
+  practica_lectiva_inicio?: string | null;
+  practica_lectiva_fin?: string | null;
+  practica_productiva_inicio?: string | null;
+  practica_productiva_fin?: string | null;
   proximo_a_vencer_contrato: boolean;
   documentos_completos: boolean;
 }
@@ -341,10 +365,14 @@ export interface EmpleadoPerfilCompleto {
   contactos_emergencia?: EmpleadoContactoEmergencia[];
   personas_a_cargo?: EmpleadoPersonaACargo[];
   documentos_adjuntos?: EmpleadoDocumentoAdjunto[];
+  comprobantes_dotacion?: EmpleadoDotacionComprobante[];
 
   // Métricas
   dias_en_empresa?: number;
   en_periodo_prueba?: boolean;
+  dias_para_fin_practica?: number | null;
+  etapa_practica_activa?: string | null;
+  en_practicas?: boolean;
   proximo_a_vencer_contrato?: boolean;
   documentos_completos?: boolean;
 }
@@ -407,6 +435,8 @@ export interface PersonalEstadisticas {
   con_vehiculo: number;
   en_prueba: number;
   prueba_critica: number;
+  en_practicas?: number;
+  practicas_criticas?: number;
 }
 
 export interface PersonalFilterParams {
@@ -419,4 +449,63 @@ export interface PersonalFilterParams {
   movil?: string;
   ordering?: string;
   periodo_prueba?: boolean | string;
+  solo_practicas?: boolean | string;
+}
+
+// ==========================================
+// Tipos para Conciliación Externa (SSFF & SIIGO)
+// ==========================================
+
+export interface EmpleadoSSFFItem {
+  id: number;
+  empleado_id?: number | null;
+  cedula: string;
+  nombres?: string | null;
+  apellidos?: string | null;
+  nombre_completo: string;
+  estado: 'ACTIVO' | 'INACTIVO' | 'DELETE' | string;
+  userid?: string | null;
+  datos?: Record<string, any>;
+  created_at?: string | null;
+  updated_at?: string | null;
+  actualizado_por_id?: number | null;
+  actualizado_por_username?: string | null;
+  edit?: string | null;
+  fecha_edit?: string | null;
+  vinculado_en_personal: boolean;
+  cargo_en_personal?: string | null;
+}
+
+export interface EmpleadoSIIGOItem {
+  id: number;
+  empleado_id?: number | null;
+  cedula: string;
+  nombre_empleado: string;
+  estado: 'ACTIVO' | 'INACTIVO' | string;
+  centro_costo?: string | null;
+  salario?: string | null;
+  datos?: Record<string, any>;
+  created_at?: string | null;
+  updated_at?: string | null;
+  actualizado_por_id?: number | null;
+  actualizado_por_username?: string | null;
+  edit?: string | null;
+  fecha_edit?: string | null;
+  vinculado_en_personal: boolean;
+  cargo_en_personal?: string | null;
+}
+
+export interface ImportReporteResult {
+  success: boolean;
+  total_registros: number;
+  cnt_insertados: number;
+  cnt_actualizados: number;
+  cnt_desactivados: number;
+  cnt_sap_actualizados?: number;
+  cedulas_con_error?: Array<{
+    cedula: string;
+    fila: number;
+    error?: string;
+  }>;
+  msg?: string;
 }

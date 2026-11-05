@@ -22,6 +22,9 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
     entregado_por_nombre = serializers.ReadOnlyField(source='entregado_por.nombre_completo')
     dias_para_periodo_prueba = serializers.ReadOnlyField()
     en_periodo_prueba = serializers.ReadOnlyField()
+    dias_para_fin_practica = serializers.ReadOnlyField()
+    etapa_practica_activa = serializers.ReadOnlyField()
+    en_practicas = serializers.ReadOnlyField()
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
@@ -81,6 +84,9 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
             'entregado_por_nombre',
             'dias_para_periodo_prueba',
             'en_periodo_prueba',
+            'dias_para_fin_practica',
+            'etapa_practica_activa',
+            'en_practicas',
             'practica_lectiva_inicio',
             'practica_lectiva_fin',
             'practica_productiva_inicio',
@@ -120,14 +126,15 @@ class EmpleadoSeguridadSocialSerializer(serializers.ModelSerializer):
 
 class EmpleadoCertificacionesSSTSerializer(serializers.ModelSerializer):
     estado_alturas = serializers.ReadOnlyField()
+    estado_coordinador = serializers.ReadOnlyField()
     estado_tecnico = serializers.ReadOnlyField()
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
-        for date_field in ['vencimiento_alturas', 'vencimiento_tecnico']:
+        for date_field in ['vencimiento_alturas', 'vencimiento_coordinador', 'vencimiento_tecnico']:
             if date_field in data and data[date_field] in ('', None):
                 data[date_field] = None
-        for str_field in ['permiso_trabajo', 'certificado_alturas_url', 'certificado_tecnico_url']:
+        for str_field in ['permiso_trabajo', 'certificado_alturas_url', 'certificado_coordinador_url', 'certificado_tecnico_url']:
             if str_field in data and data[str_field] == '':
                 data[str_field] = None
         return super().to_internal_value(data)
@@ -140,6 +147,9 @@ class EmpleadoCertificacionesSSTSerializer(serializers.ModelSerializer):
             'certificado_alturas_url',
             'vencimiento_alturas',
             'estado_alturas',
+            'certificado_coordinador_url',
+            'vencimiento_coordinador',
+            'estado_coordinador',
             'certificado_tecnico_url',
             'vencimiento_tecnico',
             'estado_tecnico',
@@ -174,7 +184,7 @@ class EmpleadoDotacionActivosSerializer(serializers.ModelSerializer):
 
 
 class EmpleadoDotacionComprobanteSerializer(serializers.ModelSerializer):
-    subido_por_nombre = serializers.ReadOnlyField(source='subido_por.get_full_name')
+    subido_por_nombre = serializers.SerializerMethodField()
 
     class Meta:
         model = EmpleadoDotacionComprobante
@@ -187,6 +197,12 @@ class EmpleadoDotacionComprobanteSerializer(serializers.ModelSerializer):
             'subido_por_nombre',
             'created_at',
         ]
+
+    def get_subido_por_nombre(self, obj):
+        if not obj.subido_por:
+            return None
+        full_name = obj.subido_por.get_full_name()
+        return full_name.strip() if full_name and full_name.strip() else obj.subido_por.username
 
 
 class EmpleadoMovilidadSerializer(serializers.ModelSerializer):
@@ -291,6 +307,13 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
     fecha_ingreso = serializers.DateField(source='laboral.fecha_ingreso', read_only=True)
     dias_para_periodo_prueba = serializers.IntegerField(source='laboral.dias_para_periodo_prueba', read_only=True)
     en_periodo_prueba = serializers.BooleanField(read_only=True)
+    dias_para_fin_practica = serializers.IntegerField(source='laboral.dias_para_fin_practica', read_only=True)
+    etapa_practica_activa = serializers.CharField(source='laboral.etapa_practica_activa', read_only=True)
+    en_practicas = serializers.BooleanField(source='laboral.en_practicas', read_only=True)
+    practica_lectiva_inicio = serializers.DateField(source='laboral.practica_lectiva_inicio', read_only=True)
+    practica_lectiva_fin = serializers.DateField(source='laboral.practica_lectiva_fin', read_only=True)
+    practica_productiva_inicio = serializers.DateField(source='laboral.practica_productiva_inicio', read_only=True)
+    practica_productiva_fin = serializers.DateField(source='laboral.practica_productiva_fin', read_only=True)
     placa_vehiculo = serializers.CharField(source='movilidad.placa_vehiculo', read_only=True)
     estado_alturas = serializers.CharField(source='certificaciones_sst.estado_alturas', read_only=True)
 
@@ -315,6 +338,13 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
             'fecha_ingreso',
             'dias_para_periodo_prueba',
             'en_periodo_prueba',
+            'dias_para_fin_practica',
+            'etapa_practica_activa',
+            'en_practicas',
+            'practica_lectiva_inicio',
+            'practica_lectiva_fin',
+            'practica_productiva_inicio',
+            'practica_productiva_fin',
             'dias_en_empresa',
             'placa_vehiculo',
             'estado_alturas',

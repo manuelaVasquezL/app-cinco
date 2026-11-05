@@ -11,10 +11,14 @@ import {
   EmpleadoCuentaBancaria,
   EmpleadoAuditoriaLog,
   EmpleadoDocumentoAdjunto,
+  EmpleadoDotacionComprobante,
   PersonalFilterParams,
   PersonalEstadisticas,
   EmpleadoPersonaACargo,
   GestionarPersonaACargoPayload,
+  EmpleadoSSFFItem,
+  EmpleadoSIIGOItem,
+  ImportReporteResult,
 } from "@/types/empleado";
 
 export interface CuadrillaInfoResponse {
@@ -309,6 +313,102 @@ export const personalService = {
         headers: { "Content-Type": "multipart/form-data" },
       }
     );
+    return response.data;
+  },
+
+  /**
+   * Sube un comprobante o acta física de entrega de dotación (Regla Legacy: guardar_dotacion / name-file_entrega_dotacion).
+   */
+  async subirComprobanteDotacion(
+    id: number,
+    file: File,
+    fechaEntrega: string,
+    observaciones?: string
+  ): Promise<EmpleadoDotacionComprobante> {
+    const formData = new FormData();
+    formData.append("archivo", file);
+    formData.append("fecha_entrega", fechaEntrega);
+    if (observaciones) {
+      formData.append("observaciones", observaciones);
+    }
+    const response = await api.post<EmpleadoDotacionComprobante>(
+      `/empleados/perfiles/${id}/comprobantes-dotacion/`,
+      formData,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      }
+    );
+    return response.data;
+  },
+
+  /**
+   * Obtiene el listado de comprobantes de dotación del colaborador.
+   */
+  async getComprobantesDotacion(id: number): Promise<EmpleadoDotacionComprobante[]> {
+    const response = await api.get<EmpleadoDotacionComprobante[]>(
+      `/empleados/perfiles/${id}/comprobantes-dotacion/`
+    );
+    return response.data;
+  },
+
+  /**
+   * Elimina un comprobante físico de dotación.
+   */
+  async eliminarComprobanteDotacion(
+    empleadoId: number,
+    comprobanteId: number
+  ): Promise<{ detail: string }> {
+    const response = await api.delete<{ detail: string }>(
+      `/empleados/perfiles/${empleadoId}/comprobantes-dotacion/${comprobanteId}/`
+    );
+    return response.data;
+  },
+
+  /**
+   * Obtiene la lista de colaboradores en base SSFF (SuccessFactors).
+   */
+  async getPersonalSSFF(params?: { search?: string; estado?: string; all?: boolean }): Promise<EmpleadoSSFFItem[]> {
+    const cleanParams: Record<string, any> = { all: true, ...params };
+    const response = await api.get<any>("/empleados/conciliacion/ssff/", { params: cleanParams });
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.results)) return data.results;
+    return [];
+  },
+
+  /**
+   * Importa archivo CSV de SuccessFactors (SSFF).
+   */
+  async importarSSFF(file: File): Promise<ImportReporteResult> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post<ImportReporteResult>("/empleados/conciliacion/ssff/importar/", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
+
+  /**
+   * Obtiene la lista de colaboradores en base SIIGO.
+   */
+  async getPersonalSIIGO(params?: { search?: string; estado?: string; all?: boolean }): Promise<EmpleadoSIIGOItem[]> {
+    const cleanParams: Record<string, any> = { all: true, ...params };
+    const response = await api.get<any>("/empleados/conciliacion/siigo/", { params: cleanParams });
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.results)) return data.results;
+    return [];
+  },
+
+  /**
+   * Importa archivo CSV de SIIGO.
+   */
+  async importarSIIGO(file: File): Promise<ImportReporteResult> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post<ImportReporteResult>("/empleados/conciliacion/siigo/importar/", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     return response.data;
   },
 };

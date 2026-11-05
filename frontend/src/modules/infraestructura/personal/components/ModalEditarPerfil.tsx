@@ -232,6 +232,8 @@ export const ModalEditarPerfil: React.FC<Props> = ({
     | "CEDULA_FRONTAL"
     | "CEDULA_POSTERIOR"
     | "CERTIFICADO_ALTURAS"
+    | "CERTIFICADO_COORDINADOR"
+    | "CERTIFICADO_ARL"
     | "CERTIFICADO_TECNICO"
     | "LICENCIA_CONDUCCION";
 
@@ -248,6 +250,8 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const fileInputFrontalRef = useRef<HTMLInputElement>(null);
   const fileInputPosteriorRef = useRef<HTMLInputElement>(null);
   const fileInputAlturasRef = useRef<HTMLInputElement>(null);
+  const fileInputCoordinadorRef = useRef<HTMLInputElement>(null);
+  const fileInputArlRef = useRef<HTMLInputElement>(null);
   const fileInputTecnicoRef = useRef<HTMLInputElement>(null);
   const fileInputLicenciaRef = useRef<HTMLInputElement>(null);
 
@@ -261,6 +265,17 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [certificadoTecnicoUrl, setCertificadoTecnicoUrl] = useState(
     (empleado.certificaciones_sst || empleado.sst)?.certificado_tecnico_url ||
     documentosAdjuntos.find((d) => d.tipo_documento === "CERTIFICADO_TECNICO" || d.tipo_documento === "CERTIFICADO_MEDICO")?.archivo_url || ""
+  );
+  const [certificadoCoordinadorUrl, setCertificadoCoordinadorUrl] = useState(
+    (empleado.certificaciones_sst || empleado.sst)?.certificado_coordinador_url ||
+    documentosAdjuntos.find((d) => d.tipo_documento === "CERTIFICADO_COORDINADOR" || d.tipo_documento === "COORDINADOR")?.archivo_url || ""
+  );
+  const [vencimientoCoordinador, setVencimientoCoordinador] = useState(
+    (empleado.certificaciones_sst || empleado.sst)?.vencimiento_coordinador || ""
+  );
+  const [certificadoArlUrl, setCertificadoArlUrl] = useState(
+    empleado.seguridad_social?.certificado_arl_url ||
+    documentosAdjuntos.find((d) => d.tipo_documento === "CERTIFICADO_ARL" || d.tipo_documento === "ARL")?.archivo_url || ""
   );
 
   const licenciaDoc = documentosAdjuntos.find(
@@ -512,6 +527,20 @@ export const ModalEditarPerfil: React.FC<Props> = ({
         finalTecnicoUrl = uploadedDocs["CERTIFICADO_TECNICO"];
       }
 
+      let finalCoordinadorUrl = certificadoCoordinadorUrl;
+      if (pendingDeletions.has("CERTIFICADO_COORDINADOR")) {
+        finalCoordinadorUrl = "";
+      } else if (uploadedDocs["CERTIFICADO_COORDINADOR"]) {
+        finalCoordinadorUrl = uploadedDocs["CERTIFICADO_COORDINADOR"];
+      }
+
+      let finalArlUrl = certificadoArlUrl;
+      if (pendingDeletions.has("CERTIFICADO_ARL")) {
+        finalArlUrl = "";
+      } else if (uploadedDocs["CERTIFICADO_ARL"]) {
+        finalArlUrl = uploadedDocs["CERTIFICADO_ARL"];
+      }
+
       const payload = {
         nombres: nombres.trim().toUpperCase() || undefined,
         apellidos: apellidos.trim().toUpperCase() || undefined,
@@ -558,12 +587,15 @@ export const ModalEditarPerfil: React.FC<Props> = ({
         seguridad_social: {
           eps: eps.trim() || null,
           arl: arl.trim() || null,
+          certificado_arl_url: finalArlUrl || null,
           afp: afp.trim() || null,
         },
         certificaciones_sst: {
           permiso_trabajo: permisoTrabajo.trim() || null,
           vencimiento_alturas: vencimientoAlturas || null,
           certificado_alturas_url: finalAlturasUrl || null,
+          vencimiento_coordinador: vencimientoCoordinador || null,
+          certificado_coordinador_url: finalCoordinadorUrl || null,
           vencimiento_tecnico: vencimientoTecnico || null,
           certificado_tecnico_url: finalTecnicoUrl || null,
         },
@@ -610,7 +642,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative my-auto w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl transition-all dark:border-gray-800 dark:bg-gray-900">
+      <div className="relative my-auto w-full max-w-3xl sm:max-w-4xl max-h-[88vh] overflow-y-auto overflow-x-hidden rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl transition-all dark:border-gray-800 dark:bg-gray-900">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-gray-800">
           <div>
@@ -630,11 +662,11 @@ export const ModalEditarPerfil: React.FC<Props> = ({
         </div>
 
         {/* Section Tabs inside Edit Modal */}
-        <div className="flex border-b border-gray-100 pt-3 dark:border-gray-800 gap-2">
+        <div className="flex items-center border-b border-gray-100 pt-3 dark:border-gray-800 gap-2 overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => setActiveTab("contacto")}
-            className={`flex items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
               activeTab === "contacto"
                 ? "border-brand-500 text-brand-600 dark:border-brand-400 dark:text-brand-400"
                 : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400"
@@ -647,7 +679,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab("laboral")}
-            className={`flex items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
               activeTab === "laboral"
                 ? "border-brand-500 text-brand-600 dark:border-brand-400 dark:text-brand-400"
                 : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400"
@@ -660,7 +692,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab("sst")}
-            className={`flex items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
               activeTab === "sst"
                 ? "border-brand-500 text-brand-600 dark:border-brand-400 dark:text-brand-400"
                 : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400"
@@ -673,7 +705,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab("dotacion")}
-            className={`flex items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
               activeTab === "dotacion"
                 ? "border-brand-500 text-brand-600 dark:border-brand-400 dark:text-brand-400"
                 : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400"
@@ -686,7 +718,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab("movilidad")}
-            className={`flex items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
               activeTab === "movilidad"
                 ? "border-brand-500 text-brand-600 dark:border-brand-400 dark:text-brand-400"
                 : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400"
@@ -1717,9 +1749,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                       <option key={a} value={a}>{a}</option>
                     ))}
                   </select>
-                </div>
-
-                <div>
+                </div>                <div>
                   <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                     ARL Riesgos Laborales
                   </label>
@@ -1772,243 +1802,498 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                   e.target.value = "";
                 }}
               />
-
-              {/* Cards for Alturas and Examen Médico with DatePicker + Upload Support */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-                {/* Curso de Alturas */}
-                <div className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-colors ${
-                  pendingDeletions.has("CERTIFICADO_ALTURAS")
-                    ? "border-red-300 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
-                    : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-                }`}>
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                          <span>Curso de Alturas</span>
-                          {(certificadoAlturasUrl || pendingFiles["CERTIFICADO_ALTURAS"]) && !pendingDeletions.has("CERTIFICADO_ALTURAS") && (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                          )}
-                        </p>
-                        {pendingFiles["CERTIFICADO_ALTURAS"] ? (
-                          <p className="text-2xs text-gray-600 dark:text-gray-300 font-mono mt-0.5 truncate max-w-[150px]" title={pendingFiles["CERTIFICADO_ALTURAS"]?.name}>
-                            {pendingFiles["CERTIFICADO_ALTURAS"]?.name}
-                          </p>
-                        ) : pendingDeletions.has("CERTIFICADO_ALTURAS") ? (
-                          <p className="text-2xs text-red-600 dark:text-red-400 mt-0.5">Se eliminará al guardar</p>
-                        ) : (
-                          <p className="text-2xs text-gray-500 mt-0.5">
-                            {certificadoAlturasUrl ? "Certificado cargado en expediente" : "Sin certificado cargado"}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        {pendingFiles["CERTIFICADO_ALTURAS"] && pendingPreviews["CERTIFICADO_ALTURAS"] ? (
-                          <>
-                            <a
-                              href={pendingPreviews["CERTIFICADO_ALTURAS"]!}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              <span>Ver</span>
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleClearPendingFile("CERTIFICADO_ALTURAS")}
-                              className="inline-flex items-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
-                              title="Descartar selección"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </>
-                        ) : pendingDeletions.has("CERTIFICADO_ALTURAS") ? (
-                          <button
-                            type="button"
-                            onClick={() => handleUndoDeletion("CERTIFICADO_ALTURAS")}
-                            className="text-2xs font-semibold text-brand-600 hover:underline dark:text-brand-400"
-                          >
-                            Deshacer
-                          </button>
-                        ) : certificadoAlturasUrl ? (
-                          <>
-                            <a
-                              href={getMediaUrl(certificadoAlturasUrl)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 text-2xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-650 dark:bg-gray-700 dark:text-gray-200 whitespace-nowrap"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              <span>Ver</span>
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleMarkForDeletion("CERTIFICADO_ALTURAS")}
-                              className="inline-flex items-center rounded-md p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
-                              title="Eliminar al guardar"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <label className="block text-2xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                        Fecha de Vencimiento Curso Alturas
-                      </label>
-                      <DatePicker
-                        id="vencimiento_alturas"
-                        placeholder="AAAA-MM-DD"
-                        defaultDate={vencimientoAlturas ? toDateOrUndefined(vencimientoAlturas) : undefined}
-                        onChange={(dates: Date[] | Date) => {
-                          const selected = Array.isArray(dates) ? dates[0] : dates;
-                          if (selected instanceof Date && !isNaN(selected.getTime())) {
-                            const y = selected.getFullYear();
-                            const m = String(selected.getMonth() + 1).padStart(2, "0");
-                            const d = String(selected.getDate()).padStart(2, "0");
-                            setVencimientoAlturas(`${y}-${m}-${d}`);
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => fileInputAlturasRef.current?.click()}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
-                  >
-                    <Upload className="h-3.5 w-3.5 text-brand-500" />
-                    <span>
-                      {pendingFiles["CERTIFICADO_ALTURAS"]
-                        ? "Cambiar archivo seleccionado"
-                        : certificadoAlturasUrl && !pendingDeletions.has("CERTIFICADO_ALTURAS")
-                        ? "Reemplazar Certificado Alturas"
-                        : "Subir PDF Certificado Alturas"}
-                    </span>
-                  </button>
+              <input
+                ref={fileInputCoordinadorRef}
+                type="file"
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleSelectPendingFile("CERTIFICADO_COORDINADOR", file);
+                  e.target.value = "";
+                }}
+              />
+              <input
+                ref={fileInputArlRef}
+                type="file"
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleSelectPendingFile("CERTIFICADO_ARL", file);
+                  e.target.value = "";
+                }}
+              />              {/* Certificaciones y Soportes Documentales SST */}
+              <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                    Certificaciones y Soportes Documentales
+                  </h4>
                 </div>
 
-                {/* Examen Médico Ocupacional */}
-                <div className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-colors ${
-                  pendingDeletions.has("CERTIFICADO_TECNICO")
-                    ? "border-red-300 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
-                    : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-                }`}>
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                          <span>Examen Médico Ocupacional</span>
-                          {(certificadoTecnicoUrl || pendingFiles["CERTIFICADO_TECNICO"]) && !pendingDeletions.has("CERTIFICADO_TECNICO") && (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {/* Curso de Alturas */}
+                  <div className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-colors ${
+                    pendingDeletions.has("CERTIFICADO_ALTURAS")
+                      ? "border-red-300 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
+                      : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+                  }`}>
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                            <span>Curso de Alturas</span>
+                            {(certificadoAlturasUrl || pendingFiles["CERTIFICADO_ALTURAS"]) && !pendingDeletions.has("CERTIFICADO_ALTURAS") && (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                            )}
+                          </p>
+                          {pendingFiles["CERTIFICADO_ALTURAS"] ? (
+                            <p className="text-2xs text-gray-600 dark:text-gray-300 font-mono mt-0.5 truncate max-w-[200px]" title={pendingFiles["CERTIFICADO_ALTURAS"]?.name}>
+                              {pendingFiles["CERTIFICADO_ALTURAS"]?.name}
+                            </p>
+                          ) : pendingDeletions.has("CERTIFICADO_ALTURAS") ? (
+                            <p className="text-2xs text-red-600 dark:text-red-400 mt-0.5">Se eliminará al guardar</p>
+                          ) : (
+                            <p className="text-2xs text-gray-500 mt-0.5">
+                              {certificadoAlturasUrl ? "Certificado cargado en expediente" : "Sin certificado cargado"}
+                            </p>
                           )}
-                        </p>
-                        {pendingFiles["CERTIFICADO_TECNICO"] ? (
-                          <p className="text-2xs text-gray-600 dark:text-gray-300 font-mono mt-0.5 truncate max-w-[150px]" title={pendingFiles["CERTIFICADO_TECNICO"]?.name}>
-                            {pendingFiles["CERTIFICADO_TECNICO"]?.name}
-                          </p>
-                        ) : pendingDeletions.has("CERTIFICADO_TECNICO") ? (
-                          <p className="text-2xs text-red-600 dark:text-red-400 mt-0.5">Se eliminará al guardar</p>
-                        ) : (
-                          <p className="text-2xs text-gray-500 mt-0.5">
-                            {certificadoTecnicoUrl ? "Soporte médico cargado en expediente" : "Sin soporte cargado"}
-                          </p>
-                        )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {pendingFiles["CERTIFICADO_ALTURAS"] && pendingPreviews["CERTIFICADO_ALTURAS"] ? (
+                            <>
+                              <a
+                                href={pendingPreviews["CERTIFICADO_ALTURAS"]!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleClearPendingFile("CERTIFICADO_ALTURAS")}
+                                className="inline-flex items-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                                title="Descartar selección"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : pendingDeletions.has("CERTIFICADO_ALTURAS") ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUndoDeletion("CERTIFICADO_ALTURAS")}
+                              className="text-2xs font-semibold text-brand-600 hover:underline dark:text-brand-400"
+                            >
+                              Deshacer
+                            </button>
+                          ) : certificadoAlturasUrl ? (
+                            <>
+                              <a
+                                href={getMediaUrl(certificadoAlturasUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 text-2xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-650 dark:bg-gray-700 dark:text-gray-200 whitespace-nowrap"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkForDeletion("CERTIFICADO_ALTURAS")}
+                                className="inline-flex items-center rounded-md p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                                title="Eliminar al guardar"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-1">
-                        {pendingFiles["CERTIFICADO_TECNICO"] && pendingPreviews["CERTIFICADO_TECNICO"] ? (
-                          <>
-                            <a
-                              href={pendingPreviews["CERTIFICADO_TECNICO"]!}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              <span>Ver</span>
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleClearPendingFile("CERTIFICADO_TECNICO")}
-                              className="inline-flex items-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
-                              title="Descartar selección"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </>
-                        ) : pendingDeletions.has("CERTIFICADO_TECNICO") ? (
-                          <button
-                            type="button"
-                            onClick={() => handleUndoDeletion("CERTIFICADO_TECNICO")}
-                            className="text-2xs font-semibold text-brand-600 hover:underline dark:text-brand-400"
-                          >
-                            Deshacer
-                          </button>
-                        ) : certificadoTecnicoUrl ? (
-                          <>
-                            <a
-                              href={getMediaUrl(certificadoTecnicoUrl)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 text-2xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-650 dark:bg-gray-700 dark:text-gray-200 whitespace-nowrap"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              <span>Ver</span>
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleMarkForDeletion("CERTIFICADO_TECNICO")}
-                              className="inline-flex items-center rounded-md p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
-                              title="Eliminar al guardar"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </>
-                        ) : null}
+                      <div className="mt-3">
+                        <label className="block text-2xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                          Fecha de Vencimiento Curso Alturas
+                        </label>
+                        <DatePicker
+                          id="vencimiento_alturas"
+                          placeholder="AAAA-MM-DD"
+                          defaultDate={vencimientoAlturas ? toDateOrUndefined(vencimientoAlturas) : undefined}
+                          onChange={(dates: Date[] | Date) => {
+                            const selected = Array.isArray(dates) ? dates[0] : dates;
+                            if (selected instanceof Date && !isNaN(selected.getTime())) {
+                              const y = selected.getFullYear();
+                              const m = String(selected.getMonth() + 1).padStart(2, "0");
+                              const d = String(selected.getDate()).padStart(2, "0");
+                              setVencimientoAlturas(`${y}-${m}-${d}`);
+                            }
+                          }}
+                        />
                       </div>
                     </div>
 
-                    <div className="mt-3">
-                      <label className="block text-2xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                        Fecha de Vencimiento Examen Médico
-                      </label>
-                      <DatePicker
-                        id="vencimiento_tecnico"
-                        placeholder="AAAA-MM-DD"
-                        defaultDate={vencimientoTecnico ? toDateOrUndefined(vencimientoTecnico) : undefined}
-                        onChange={(dates: Date[] | Date) => {
-                          const selected = Array.isArray(dates) ? dates[0] : dates;
-                          if (selected instanceof Date && !isNaN(selected.getTime())) {
-                            const y = selected.getFullYear();
-                            const m = String(selected.getMonth() + 1).padStart(2, "0");
-                            const d = String(selected.getDate()).padStart(2, "0");
-                            setVencimientoTecnico(`${y}-${m}-${d}`);
-                          }
-                        }}
-                      />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => fileInputAlturasRef.current?.click()}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-brand-500" />
+                      <span>
+                        {pendingFiles["CERTIFICADO_ALTURAS"]
+                          ? "Cambiar archivo seleccionado"
+                          : certificadoAlturasUrl && !pendingDeletions.has("CERTIFICADO_ALTURAS")
+                          ? "Reemplazar Certificado Alturas"
+                          : "Subir PDF Certificado Alturas"}
+                      </span>
+                    </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => fileInputTecnicoRef.current?.click()}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
-                  >
-                    <Upload className="h-3.5 w-3.5 text-brand-500" />
-                    <span>
-                      {pendingFiles["CERTIFICADO_TECNICO"]
-                        ? "Cambiar archivo seleccionado"
-                        : certificadoTecnicoUrl && !pendingDeletions.has("CERTIFICADO_TECNICO")
-                        ? "Reemplazar Soporte Médico"
-                        : "Subir Soporte Examen Médico"}
-                    </span>
-                  </button>
+                  {/* Coordinador de Alturas */}
+                  <div className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-colors ${
+                    pendingDeletions.has("CERTIFICADO_COORDINADOR")
+                      ? "border-red-300 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
+                      : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+                  }`}>
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                            <span>Coordinador Alturas</span>
+                            {(certificadoCoordinadorUrl || pendingFiles["CERTIFICADO_COORDINADOR"]) && !pendingDeletions.has("CERTIFICADO_COORDINADOR") && (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                            )}
+                          </p>
+                          {pendingFiles["CERTIFICADO_COORDINADOR"] ? (
+                            <p className="text-2xs text-gray-600 dark:text-gray-300 font-mono mt-0.5 truncate max-w-[200px]" title={pendingFiles["CERTIFICADO_COORDINADOR"]?.name}>
+                              {pendingFiles["CERTIFICADO_COORDINADOR"]?.name}
+                            </p>
+                          ) : pendingDeletions.has("CERTIFICADO_COORDINADOR") ? (
+                            <p className="text-2xs text-red-600 dark:text-red-400 mt-0.5">Se eliminará al guardar</p>
+                          ) : (
+                            <p className="text-2xs text-gray-500 mt-0.5">
+                              {certificadoCoordinadorUrl ? "Certificado cargado" : "Sin certificado de coordinador"}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {pendingFiles["CERTIFICADO_COORDINADOR"] && pendingPreviews["CERTIFICADO_COORDINADOR"] ? (
+                            <>
+                              <a
+                                href={pendingPreviews["CERTIFICADO_COORDINADOR"]!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleClearPendingFile("CERTIFICADO_COORDINADOR")}
+                                className="inline-flex items-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                                title="Descartar selección"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : pendingDeletions.has("CERTIFICADO_COORDINADOR") ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUndoDeletion("CERTIFICADO_COORDINADOR")}
+                              className="text-2xs font-semibold text-brand-600 hover:underline dark:text-brand-400"
+                            >
+                              Deshacer
+                            </button>
+                          ) : certificadoCoordinadorUrl ? (
+                            <>
+                              <a
+                                href={getMediaUrl(certificadoCoordinadorUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 text-2xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-650 dark:bg-gray-700 dark:text-gray-200 whitespace-nowrap"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkForDeletion("CERTIFICADO_COORDINADOR")}
+                                className="inline-flex items-center rounded-md p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                                title="Eliminar al guardar"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <label className="block text-2xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                          Fecha de Vencimiento Coordinador
+                        </label>
+                        <DatePicker
+                          id="vencimiento_coordinador"
+                          placeholder="AAAA-MM-DD"
+                          defaultDate={vencimientoCoordinador ? toDateOrUndefined(vencimientoCoordinador) : undefined}
+                          onChange={(dates: Date[] | Date) => {
+                            const selected = Array.isArray(dates) ? dates[0] : dates;
+                            if (selected instanceof Date && !isNaN(selected.getTime())) {
+                              const y = selected.getFullYear();
+                              const m = String(selected.getMonth() + 1).padStart(2, "0");
+                              const d = String(selected.getDate()).padStart(2, "0");
+                              setVencimientoCoordinador(`${y}-${m}-${d}`);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputCoordinadorRef.current?.click()}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-brand-500" />
+                      <span>
+                        {pendingFiles["CERTIFICADO_COORDINADOR"]
+                          ? "Cambiar archivo seleccionado"
+                          : certificadoCoordinadorUrl && !pendingDeletions.has("CERTIFICADO_COORDINADOR")
+                          ? "Reemplazar Certificado Coordinador"
+                          : "Subir PDF Coordinador Alturas"}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Examen Médico Ocupacional */}
+                  <div className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-colors ${
+                    pendingDeletions.has("CERTIFICADO_TECNICO")
+                      ? "border-red-300 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
+                      : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+                  }`}>
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                            <span>Examen Médico Ocupacional</span>
+                            {(certificadoTecnicoUrl || pendingFiles["CERTIFICADO_TECNICO"]) && !pendingDeletions.has("CERTIFICADO_TECNICO") && (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                            )}
+                          </p>
+                          {pendingFiles["CERTIFICADO_TECNICO"] ? (
+                            <p className="text-2xs text-gray-600 dark:text-gray-300 font-mono mt-0.5 truncate max-w-[200px]" title={pendingFiles["CERTIFICADO_TECNICO"]?.name}>
+                              {pendingFiles["CERTIFICADO_TECNICO"]?.name}
+                            </p>
+                          ) : pendingDeletions.has("CERTIFICADO_TECNICO") ? (
+                            <p className="text-2xs text-red-600 dark:text-red-400 mt-0.5">Se eliminará al guardar</p>
+                          ) : (
+                            <p className="text-2xs text-gray-500 mt-0.5">
+                              {certificadoTecnicoUrl ? "Soporte médico cargado en expediente" : "Sin soporte cargado"}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {pendingFiles["CERTIFICADO_TECNICO"] && pendingPreviews["CERTIFICADO_TECNICO"] ? (
+                            <>
+                              <a
+                                href={pendingPreviews["CERTIFICADO_TECNICO"]!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleClearPendingFile("CERTIFICADO_TECNICO")}
+                                className="inline-flex items-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                                title="Descartar selección"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : pendingDeletions.has("CERTIFICADO_TECNICO") ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUndoDeletion("CERTIFICADO_TECNICO")}
+                              className="text-2xs font-semibold text-brand-600 hover:underline dark:text-brand-400"
+                            >
+                              Deshacer
+                            </button>
+                          ) : certificadoTecnicoUrl ? (
+                            <>
+                              <a
+                                href={getMediaUrl(certificadoTecnicoUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 text-2xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-650 dark:bg-gray-700 dark:text-gray-200 whitespace-nowrap"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkForDeletion("CERTIFICADO_TECNICO")}
+                                className="inline-flex items-center rounded-md p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                                title="Eliminar al guardar"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <label className="block text-2xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                          Fecha de Vencimiento Examen Médico
+                        </label>
+                        <DatePicker
+                          id="vencimiento_tecnico"
+                          placeholder="AAAA-MM-DD"
+                          defaultDate={vencimientoTecnico ? toDateOrUndefined(vencimientoTecnico) : undefined}
+                          onChange={(dates: Date[] | Date) => {
+                            const selected = Array.isArray(dates) ? dates[0] : dates;
+                            if (selected instanceof Date && !isNaN(selected.getTime())) {
+                              const y = selected.getFullYear();
+                              const m = String(selected.getMonth() + 1).padStart(2, "0");
+                              const d = String(selected.getDate()).padStart(2, "0");
+                              setVencimientoTecnico(`${y}-${m}-${d}`);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputTecnicoRef.current?.click()}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-brand-500" />
+                      <span>
+                        {pendingFiles["CERTIFICADO_TECNICO"]
+                          ? "Cambiar archivo seleccionado"
+                          : certificadoTecnicoUrl && !pendingDeletions.has("CERTIFICADO_TECNICO")
+                          ? "Reemplazar Soporte Médico"
+                          : "Subir Soporte Examen Médico"}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Certificado de Afiliación ARL */}
+                  <div className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-colors ${
+                    pendingDeletions.has("CERTIFICADO_ARL")
+                      ? "border-red-300 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
+                      : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+                  }`}>
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                            <span>Certificado Afiliación ARL</span>
+                            {(certificadoArlUrl || pendingFiles["CERTIFICADO_ARL"]) && !pendingDeletions.has("CERTIFICADO_ARL") && (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                            )}
+                          </p>
+                          {pendingFiles["CERTIFICADO_ARL"] ? (
+                            <p className="text-2xs text-gray-600 dark:text-gray-300 font-mono mt-0.5 truncate max-w-[200px]" title={pendingFiles["CERTIFICADO_ARL"]?.name}>
+                              {pendingFiles["CERTIFICADO_ARL"]?.name}
+                            </p>
+                          ) : pendingDeletions.has("CERTIFICADO_ARL") ? (
+                            <p className="text-2xs text-red-600 dark:text-red-400 mt-0.5">Se eliminará al guardar</p>
+                          ) : (
+                            <p className="text-2xs text-gray-500 mt-0.5">
+                              {certificadoArlUrl ? "Soporte ARL cargado en expediente" : "Sin certificado digital cargado"}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {pendingFiles["CERTIFICADO_ARL"] && pendingPreviews["CERTIFICADO_ARL"] ? (
+                            <>
+                              <a
+                                href={pendingPreviews["CERTIFICADO_ARL"]!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleClearPendingFile("CERTIFICADO_ARL")}
+                                className="inline-flex items-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                                title="Descartar selección"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : pendingDeletions.has("CERTIFICADO_ARL") ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUndoDeletion("CERTIFICADO_ARL")}
+                              className="text-2xs font-semibold text-brand-600 hover:underline dark:text-brand-400"
+                            >
+                              Deshacer
+                            </button>
+                          ) : certificadoArlUrl ? (
+                            <>
+                              <a
+                                href={getMediaUrl(certificadoArlUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 text-2xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-650 dark:bg-gray-700 dark:text-gray-200 whitespace-nowrap"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span>Ver</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkForDeletion("CERTIFICADO_ARL")}
+                                className="inline-flex items-center rounded-md p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                                title="Eliminar al guardar"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <label className="block text-2xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                          Entidad Aseguradora ARL
+                        </label>
+                        <div className="h-8 px-2.5 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-300">
+                          <span className="font-semibold text-gray-800 dark:text-white">{arl || "COLMENA"}</span>
+                          <span className="text-2xs text-gray-400">Riesgos Laborales</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputArlRef.current?.click()}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-brand-500" />
+                      <span>
+                        {pendingFiles["CERTIFICADO_ARL"]
+                          ? "Cambiar archivo seleccionado"
+                          : certificadoArlUrl && !pendingDeletions.has("CERTIFICADO_ARL")
+                          ? "Reemplazar Soporte ARL"
+                          : "Subir Certificado ARL (PDF)"}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

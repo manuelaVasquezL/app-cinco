@@ -1,6 +1,6 @@
 # apps/empleados/models/__init__.py
 # Modelos Legado (Compatibilidad temporal)
-from .empleado_model import Empleado, EmpleadoSiigo
+from .empleado_model import Empleado
 
 # Nuevos Modelos Relacionales Normalizados (especificacion_modelo_base_personal.md)
 from .perfil_model import EmpleadoPerfil
@@ -14,6 +14,15 @@ from .bancario_model import EmpleadoCuentaBancaria
 from .familia_model import EmpleadoContactoEmergencia, EmpleadoPersonaACargo
 from .documentos_model import EmpleadoDocumentoAdjunto
 from .auditoria_model import EmpleadoAuditoriaLog
+from .conciliacion_model import (
+    EmpleadoSSFF,
+    EmpleadoSIIGO,
+    EmpleadoBaseSSFF,
+    EmpleadoBaseSIIGO,
+)
+
+# Alias de compatibilidad hacia atrás
+EmpleadoSiigo = EmpleadoSIIGO
 
 __all__ = [
     'Empleado',
@@ -31,4 +40,8 @@ __all__ = [
     'EmpleadoPersonaACargo',
     'EmpleadoDocumentoAdjunto',
     'EmpleadoAuditoriaLog',
+    'EmpleadoSSFF',
+    'EmpleadoSIIGO',
+    'EmpleadoBaseSSFF',
+    'EmpleadoBaseSIIGO',
 ]

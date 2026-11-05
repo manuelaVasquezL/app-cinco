@@ -611,7 +611,38 @@ class EmpleadoCertificacionesSSTTests(BaseEmpleadoTestCase):
         sst.refresh_from_db()
         self.assertTrue(sst.certificado_tecnico_url.startswith('/media/infraestructura/examenes_medicos/'))
 
-        # 3. Eliminar Certificado Alturas
+        # 3. Subir Certificado Coordinador Alturas
+        pdf_coordinador = SimpleUploadedFile("coordinador.pdf", b"%PDF-1.4 coordinador test content", content_type="application/pdf")
+        req_coord = factory.post(
+            f'/empleados/perfiles/{self.perfil.id}/subir-documento/',
+            {'tipo_documento': 'CERTIFICADO_COORDINADOR', 'archivo': pdf_coordinador},
+            format='multipart'
+        )
+        force_authenticate(req_coord, user=self.user)
+        resp_coord = view(req_coord, pk=self.perfil.id)
+        self.assertEqual(resp_coord.status_code, 200)
+
+        sst.refresh_from_db()
+        self.assertTrue(sst.certificado_coordinador_url.startswith('/media/infraestructura/alturas/'))
+        self.assertTrue(sst.certificado_coordinador_url.endswith('.pdf'))
+
+        # 4. Subir Certificado ARL
+        from apps.empleados.models import EmpleadoSeguridadSocial
+        pdf_arl = SimpleUploadedFile("afiliacion_arl.pdf", b"%PDF-1.4 arl test content", content_type="application/pdf")
+        req_arl = factory.post(
+            f'/empleados/perfiles/{self.perfil.id}/subir-documento/',
+            {'tipo_documento': 'CERTIFICADO_ARL', 'archivo': pdf_arl},
+            format='multipart'
+        )
+        force_authenticate(req_arl, user=self.user)
+        resp_arl = view(req_arl, pk=self.perfil.id)
+        self.assertEqual(resp_arl.status_code, 200)
+
+        ss = EmpleadoSeguridadSocial.objects.get(empleado=self.perfil)
+        self.assertTrue(ss.certificado_arl_url.startswith('/media/infraestructura/arl/'))
+        self.assertTrue(ss.certificado_arl_url.endswith('.pdf'))
+
+        # 5. Eliminar Certificado Alturas
         req_del = factory.delete(f'/empleados/perfiles/{self.perfil.id}/documentos/CERTIFICADO_ALTURAS/')
         force_authenticate(req_del, user=self.user)
         resp3 = view(req_del, pk=self.perfil.id, tipo_documento='CERTIFICADO_ALTURAS')
@@ -619,6 +650,22 @@ class EmpleadoCertificacionesSSTTests(BaseEmpleadoTestCase):
 
         sst.refresh_from_db()
         self.assertIsNone(sst.certificado_alturas_url)
+
+        # 6. Eliminar Certificado Coordinador
+        req_del_coord = factory.delete(f'/empleados/perfiles/{self.perfil.id}/documentos/CERTIFICADO_COORDINADOR/')
+        force_authenticate(req_del_coord, user=self.user)
+        resp_del_coord = view(req_del_coord, pk=self.perfil.id, tipo_documento='CERTIFICADO_COORDINADOR')
+        self.assertEqual(resp_del_coord.status_code, 200)
+        sst.refresh_from_db()
+        self.assertIsNone(sst.certificado_coordinador_url)
+
+        # 7. Eliminar Certificado ARL
+        req_del_arl = factory.delete(f'/empleados/perfiles/{self.perfil.id}/documentos/CERTIFICADO_ARL/')
+        force_authenticate(req_del_arl, user=self.user)
+        resp_del_arl = view(req_del_arl, pk=self.perfil.id, tipo_documento='CERTIFICADO_ARL')
+        self.assertEqual(resp_del_arl.status_code, 200)
+        ss.refresh_from_db()
+        self.assertIsNone(ss.certificado_arl_url)
 
 
 class EmpleadoDotacionActivosTests(BaseEmpleadoTestCase):
@@ -1712,3 +1759,428 @@ class EmpleadoSubirFotoTests(BaseEmpleadoTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('error', response.data)
+
+
+class EmpleadoComprobantesDotacionTests(BaseEmpleadoTestCase):
+    """
+    Pruebas unitarias para la carga, listado y eliminación de actas físicas y comprobantes
+    firmados de entrega de dotación (Regla Legacy: guardar_dotacion / name-file_entrega_dotacion).
+    """
+
+    def setUp(self):
+        import uuid
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        self.user = User.objects.create_user(username=f'dot_usr_{uid}', password='pwd')
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.user,
+            numero_documento=f'99{uid}',
+            nombres='DOTACION',
+            apellidos='TEST',
+            estado='ACTIVO'
+        )
+
+    def test_subir_comprobante_dotacion_pdf_exitoso(self):
+        import os
+        from django.conf import settings
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoDotacionComprobante, EmpleadoAuditoriaLog
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        fake_pdf = SimpleUploadedFile(
+            name="acta_entrega.pdf",
+            content=b"%PDF-1.4 test entrega dotacion signed act content",
+            content_type="application/pdf"
+        )
+
+        response = client.post(
+            f"/empleados/perfiles/{self.perfil.id}/comprobantes-dotacion/",
+            {
+                'archivo': fake_pdf,
+                'fecha_entrega': '2026-11-03',
+                'observaciones': 'Entrega dotación 2 camisas y 1 par de botas'
+            },
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIn('id', response.data)
+        self.assertEqual(response.data['fecha_entrega'], '2026-11-03')
+        self.assertEqual(response.data['observaciones'], 'Entrega dotación 2 camisas y 1 par de botas')
+        self.assertTrue(response.data['archivo_url'].startswith('/media/infraestructura/dotacion/'))
+        self.assertTrue(response.data['archivo_url'].endswith('.pdf'))
+
+        # Validar en base de datos
+        comp = EmpleadoDotacionComprobante.objects.filter(id=response.data['id']).first()
+        self.assertIsNotNone(comp)
+        self.assertEqual(comp.empleado, self.perfil)
+        self.assertEqual(str(comp.fecha_entrega), '2026-11-03')
+
+        # Validar auditoría
+        audit = EmpleadoAuditoriaLog.objects.filter(
+            empleado=self.perfil,
+            accion='CARGA_COMPROBANTE_DOTACION',
+            tabla_afectada='empleados_dotacion_comprobantes'
+        ).last()
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit.datos_nuevos.get('id'), comp.id)
+
+        # Limpiar archivo físico
+        saved_file_rel = response.data['archivo_url'].lstrip('/')
+        if saved_file_rel.startswith('media/'):
+            saved_file_rel = saved_file_rel[6:]
+        saved_file_abs = os.path.join(settings.MEDIA_ROOT, saved_file_rel)
+        if os.path.exists(saved_file_abs):
+            try:
+                os.remove(saved_file_abs)
+            except Exception:
+                pass
+
+    def test_subir_comprobante_dotacion_compatibilidad_legacy(self):
+        import os
+        from django.conf import settings
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoDotacionComprobante
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        fake_img = SimpleUploadedFile(
+            name="comprobante_scan.png",
+            content=b"FAKE-PNG-IMAGE-BINARY-DATA-TEST",
+            content_type="image/png"
+        )
+
+        # Utilizar nombres de campo de la interfaz legacy PHP
+        response = client.post(
+            f"/empleados/perfiles/{self.perfil.id}/comprobantes-dotacion/",
+            {
+                'name-file_entrega_dotacion': fake_img,
+                'fecha_entrega_dotacion': '2026-10-15',
+                'observaciones': 'Entrega dotación SST'
+            },
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['fecha_entrega'], '2026-10-15')
+        self.assertTrue(response.data['archivo_url'].endswith('.png'))
+
+        # Limpiar archivo físico
+        saved_file_rel = response.data['archivo_url'].lstrip('/')
+        if saved_file_rel.startswith('media/'):
+            saved_file_rel = saved_file_rel[6:]
+        saved_file_abs = os.path.join(settings.MEDIA_ROOT, saved_file_rel)
+        if os.path.exists(saved_file_abs):
+            try:
+                os.remove(saved_file_abs)
+            except Exception:
+                pass
+
+    def test_subir_comprobante_sin_archivo_falla(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        response = client.post(
+            f"/empleados/perfiles/{self.perfil.id}/comprobantes-dotacion/",
+            {'fecha_entrega': '2026-11-03'},
+            format='multipart'
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.data)
+
+    def test_subir_comprobante_formato_invalido(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        fake_doc = SimpleUploadedFile(
+            name="script.sh",
+            content=b"#!/bin/bash echo hello",
+            content_type="text/x-sh"
+        )
+
+        response = client.post(
+            f"/empleados/perfiles/{self.perfil.id}/comprobantes-dotacion/",
+            {'archivo': fake_doc},
+            format='multipart'
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.data)
+
+    def test_listar_comprobantes_dotacion(self):
+        from datetime import date
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoDotacionComprobante
+
+        EmpleadoDotacionComprobante.objects.create(
+            empleado=self.perfil,
+            fecha_entrega=date(2026, 5, 10),
+            observaciones='Entrega mayo',
+            archivo_url='/media/infraestructura/dotacion/dummy1.pdf',
+            subido_por=self.user
+        )
+        EmpleadoDotacionComprobante.objects.create(
+            empleado=self.perfil,
+            fecha_entrega=date(2026, 9, 20),
+            observaciones='Entrega septiembre',
+            archivo_url='/media/infraestructura/dotacion/dummy2.pdf',
+            subido_por=self.user
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        response = client.get(f"/empleados/perfiles/{self.perfil.id}/comprobantes-dotacion/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+        # Orden descendente por fecha_entrega
+        self.assertEqual(response.data[0]['fecha_entrega'], '2026-09-20')
+        self.assertEqual(response.data[1]['fecha_entrega'], '2026-05-10')
+
+    def test_eliminar_comprobante_dotacion_exitoso(self):
+        import os
+        from datetime import date
+        from django.conf import settings
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoDotacionComprobante, EmpleadoAuditoriaLog
+
+        # Crear archivo temporal
+        sub_dir = os.path.join(settings.MEDIA_ROOT, 'infraestructura', 'dotacion')
+        os.makedirs(sub_dir, exist_ok=True)
+        dummy_file = os.path.join(sub_dir, 'test_delete_doc.pdf')
+        with open(dummy_file, 'w') as f:
+            f.write('dummy content')
+
+        comp = EmpleadoDotacionComprobante.objects.create(
+            empleado=self.perfil,
+            fecha_entrega=date(2026, 11, 1),
+            observaciones='Por eliminar',
+            archivo_url='/media/infraestructura/dotacion/test_delete_doc.pdf',
+            subido_por=self.user
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        response = client.delete(f"/empleados/perfiles/{self.perfil.id}/comprobantes-dotacion/{comp.id}/")
+        self.assertEqual(response.status_code, 200)
+
+        # Verificar que el registro no existe
+        self.assertFalse(EmpleadoDotacionComprobante.objects.filter(id=comp.id).exists())
+
+        # Verificar que el archivo físico fue eliminado
+        self.assertFalse(os.path.exists(dummy_file))
+
+        # Verificar auditoría
+        audit = EmpleadoAuditoriaLog.objects.filter(
+            empleado=self.perfil,
+            accion='ELIMINACION_COMPROBANTE_DOTACION',
+            tabla_afectada='empleados_dotacion_comprobantes'
+        ).last()
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit.datos_anteriores.get('id'), comp.id)
+
+
+    def test_importar_y_listar_ssff(self):
+        from io import BytesIO
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoSSFF
+
+        EmpleadoSSFF.objects.all().delete()
+
+        old_ssff = EmpleadoSSFF.objects.create(
+            cedula='999999999',
+            estado='ACTIVO',
+            datos={'nombres': 'ANTIGUO', 'apellidos': 'USUARIO'}
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        from datetime import date
+        from apps.empleados.models import EmpleadoLaboral
+
+        doc_perfil = '77112233'
+        self.perfil.numero_documento = doc_perfil
+        self.perfil.save()
+        lab, _ = EmpleadoLaboral.objects.get_or_create(
+            empleado=self.perfil,
+            defaults={
+                'cargo': 'TECNICO',
+                'area': 'OPERACIONES',
+                'carpeta': 'OPERACIONES',
+                'fecha_ingreso': date(2024, 1, 1),
+            }
+        )
+        lab.codigo_sap = None
+        lab.save()
+
+        csv_content = (
+            "Cédula;Nombres;Apellidos;Status;UserID;Hire Date\n"
+            f"{doc_perfil};JUAN PABLO;PEREZ;Active;884422;01/02/2024\n"
+            "1020304050;CARLOS;GOMEZ;Active;112233;15/03/2024\n"
+            "1.01E+09;ERROR;EXCEL;Active;998877;01/01/2024\n"
+        ).encode('utf-8')
+
+        file_obj = BytesIO(csv_content)
+        file_obj.name = 'reporte_ssff.csv'
+
+        response = client.post(
+            "/empleados/conciliacion/ssff/importar/",
+            {'file': file_obj},
+            format='multipart'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['cnt_insertados'], 2)
+        self.assertEqual(data['cnt_desactivados'], 1)
+        self.assertEqual(data['cnt_sap_actualizados'], 1)
+        self.assertEqual(len(data['cedulas_con_error']), 1)
+        self.assertEqual(data['cedulas_con_error'][0]['cedula'], '1.01E+09')
+
+        old_ssff.refresh_from_db()
+        self.assertEqual(old_ssff.estado, 'DELETE')
+
+        self.perfil.laboral.refresh_from_db()
+        self.assertEqual(self.perfil.laboral.codigo_sap, '884422')
+
+        list_resp = client.get("/empleados/conciliacion/ssff/?estado=ACTIVO")
+        self.assertEqual(list_resp.status_code, 200)
+        results = list_resp.json().get('results', list_resp.json())
+        self.assertEqual(len(results), 2)
+        item_perfil = next(r for r in results if r['cedula'] == doc_perfil)
+        self.assertTrue(item_perfil['vinculado_en_personal'])
+        self.assertEqual(item_perfil['userid'], '884422')
+        self.assertEqual(item_perfil['empleado_id'], self.perfil.id)
+        self.assertIsNotNone(item_perfil['updated_at'])
+
+        obj_ssff = EmpleadoSSFF.objects.get(cedula=doc_perfil)
+        self.assertEqual(obj_ssff.empleado, self.perfil)
+        self.assertEqual(obj_ssff.userid, '884422')
+        self.assertIsNotNone(obj_ssff.updated_at)
+
+    def test_importar_y_listar_siigo(self):
+        from io import BytesIO
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoSIIGO
+
+        EmpleadoSIIGO.objects.all().delete()
+
+        old_siigo = EmpleadoSIIGO.objects.create(
+            cedula='888888888',
+            estado='ACTIVO',
+            datos={'nombre_empleado': 'ANTERIOR SIIGO'}
+        )
+
+        self.perfil.numero_documento = '1020304050'
+        self.perfil.save()
+
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        csv_content = (
+            "NIT;Nombre;Ciudad;Nombre;CC;Sueldo;Pension\n"
+            "1020304050;CARLOS GOMEZ;05001;MEDELLIN;OPERACIONES;2.500.000,00;PROTECCION\n"
+            "1030405060;MARIA LOPEZ;05001;MEDELLIN;ADMIN;3.000.000,00;PORVENIR\n"
+        ).encode('utf-8')
+
+        file_obj = BytesIO(csv_content)
+        file_obj.name = 'reporte_siigo.csv'
+
+        response = client.post(
+            "/empleados/conciliacion/siigo/importar/",
+            {'file': file_obj},
+            format='multipart'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['cnt_insertados'], 2)
+        self.assertEqual(data['cnt_desactivados'], 1)
+
+        old_siigo.refresh_from_db()
+        self.assertEqual(old_siigo.estado, 'INACTIVO')
+
+        obj_carlos = EmpleadoSIIGO.objects.get(cedula='1020304050')
+        self.assertEqual(obj_carlos.estado, 'ACTIVO')
+        self.assertEqual(obj_carlos.centro_costo, 'OPERACIONES')
+        self.assertEqual(obj_carlos.salario, '2500000.00')
+
+        list_resp = client.get("/empleados/conciliacion/siigo/?estado=ACTIVO")
+        self.assertEqual(list_resp.status_code, 200)
+        results = list_resp.json().get('results', list_resp.json())
+        self.assertEqual(len(results), 2)
+
+        item_carlos = next(r for r in results if r['cedula'] == '1020304050')
+        self.assertTrue(item_carlos['vinculado_en_personal'])
+        self.assertEqual(item_carlos['empleado_id'], self.perfil.id)
+        self.assertIsNotNone(item_carlos['updated_at'])
+        self.assertEqual(obj_carlos.empleado, self.perfil)
+        self.assertEqual(obj_carlos.nombre_empleado, 'CARLOS GOMEZ')
+        self.assertIsNotNone(obj_carlos.updated_at)
+
+    def test_alertas_practicas_sena(self):
+        from rest_framework.test import APIClient
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.empleados.models import EmpleadoLaboral
+
+        hoy = timezone.now().date()
+        lab, _ = EmpleadoLaboral.objects.get_or_create(
+            empleado=self.perfil,
+            defaults={
+                'cargo': 'TECNICO',
+                'area': 'OPERACIONES',
+                'carpeta': 'OPERACIONES',
+                'fecha_ingreso': hoy,
+            }
+        )
+        lab.cargo = 'APRENDIZ SENA'
+        lab.practica_lectiva_inicio = hoy - timedelta(days=170)
+        lab.practica_lectiva_fin = hoy + timedelta(days=10)
+        lab.practica_productiva_inicio = hoy + timedelta(days=11)
+        lab.practica_productiva_fin = hoy + timedelta(days=191)
+        lab.save()
+
+        # 1. Properties
+        self.assertEqual(lab.etapa_practica_activa, 'LECTIVA')
+        self.assertEqual(lab.dias_para_fin_practica, 10)
+        self.assertTrue(lab.en_practicas)
+        self.assertEqual(self.perfil.dias_para_fin_practica, 10)
+        self.assertEqual(self.perfil.etapa_practica_activa, 'LECTIVA')
+        self.assertTrue(self.perfil.en_practicas)
+
+        # 2. List endpoint with filter
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        resp = client.get("/empleados/perfiles/?solo_practicas=true")
+        self.assertEqual(resp.status_code, 200)
+        data_resp = resp.json()
+        results = data_resp if isinstance(data_resp, list) else data_resp.get('results', [])
+        item = next((r for r in results if r['id'] == self.perfil.id), None)
+        self.assertIsNotNone(item)
+        self.assertEqual(item['dias_para_fin_practica'], 10)
+        self.assertEqual(item['etapa_practica_activa'], 'LECTIVA')
+        self.assertTrue(item['en_practicas'])
+        self.assertEqual(item['practica_lectiva_fin'], (hoy + timedelta(days=10)).isoformat())
+
+        # 3. Estadisticas endpoint
+        stats_resp = client.get("/empleados/perfiles/estadisticas/")
+        self.assertEqual(stats_resp.status_code, 200)
+        stats = stats_resp.json()
+        self.assertIn('en_practicas', stats)
+        self.assertIn('practicas_criticas', stats)
+        self.assertGreaterEqual(stats['en_practicas'], 1)
+        self.assertGreaterEqual(stats['practicas_criticas'], 1)

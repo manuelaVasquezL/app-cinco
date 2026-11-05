@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, RotateCcw, UserPlus, Clock } from "lucide-react";
+import { Search, RotateCcw, UserPlus, Clock, GraduationCap } from "lucide-react";
 import { usePersonalStore } from "../store/usePersonalStore";
 import { EstadoEmpleado } from "@/types/empleado";
 
@@ -21,6 +21,8 @@ export const PersonalFiltersBar: React.FC<Props> = ({ onOpenNuevoEmpleado }) => 
     fetchEmpleados,
     soloPeriodoPrueba,
     setSoloPeriodoPrueba,
+    soloPracticas,
+    setSoloPracticas,
   } = usePersonalStore();
 
   const countPrueba =
@@ -31,6 +33,17 @@ export const PersonalFiltersBar: React.FC<Props> = ({ onOpenNuevoEmpleado }) => 
         i.en_periodo_prueba &&
         typeof i.dias_para_periodo_prueba === "number" &&
         i.dias_para_periodo_prueba >= 0
+    ).length;
+
+  const countPracticas =
+    estadisticas?.en_practicas ??
+    (items || []).filter(
+      (i) =>
+        i.estado === "ACTIVO" &&
+        (i.en_practicas ||
+          Boolean(i.practica_lectiva_inicio) ||
+          Boolean(i.practica_productiva_inicio) ||
+          (i.cargo && i.cargo.toUpperCase().includes("APRENDIZ")))
     ).length;
 
   const [localSearch, setLocalSearch] = useState(filters.search || "");
@@ -79,7 +92,7 @@ export const PersonalFiltersBar: React.FC<Props> = ({ onOpenNuevoEmpleado }) => 
                 key={tab.key}
                 onClick={() => setEstadoTab(tab.key)}
                 className={`rounded-lg px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
-                  !soloPeriodoPrueba && currentTab === tab.key
+                  !soloPeriodoPrueba && !soloPracticas && currentTab === tab.key
                     ? "bg-brand-500 text-white shadow-xs"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 }`}
@@ -115,6 +128,37 @@ export const PersonalFiltersBar: React.FC<Props> = ({ onOpenNuevoEmpleado }) => 
                   }`}
                 >
                   {countPrueba}
+                </span>
+              )}
+            </button>
+
+            {/* Pestaña de Filtro Directo: Prácticas SENA */}
+            <button
+              type="button"
+              onClick={() => {
+                if (soloPracticas) {
+                  setEstadoTab("ACTIVO");
+                } else {
+                  setEstadoTab("PRACTICAS");
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                soloPracticas
+                  ? "bg-brand-500 text-white shadow-xs"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              }`}
+            >
+              <GraduationCap className={`h-3.5 w-3.5 ${soloPracticas ? "text-white" : "text-brand-500"}`} />
+              <span>Prácticas SENA</span>
+              {countPracticas > 0 && (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    soloPracticas
+                      ? "bg-white/20 text-white"
+                      : "bg-brand-100 text-brand-700 dark:bg-brand-950/60 dark:text-brand-300"
+                  }`}
+                >
+                  {countPracticas}
                 </span>
               )}
             </button>

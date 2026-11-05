@@ -102,3 +102,57 @@ class EmpleadoLaboral(models.Model):
             return 0
         fin = self.fecha_egreso or timezone.now().date()
         return max(0, (fin - self.fecha_ingreso).days)
+
+    @property
+    def etapa_practica_activa(self):
+        """
+        Determina la etapa actual de prácticas del colaborador ('LECTIVA', 'PRODUCTIVA', 'CULMINADA' o None).
+        Si ambas están definidas, prioriza la que esté en curso o la más próxima a vencer.
+        """
+        hoy = timezone.now().date()
+        # Verificar primero si está en lectiva
+        if self.practica_lectiva_inicio or self.practica_lectiva_fin:
+            if self.practica_lectiva_fin and hoy <= self.practica_lectiva_fin:
+                return 'LECTIVA'
+        # Verificar si está en productiva
+        if self.practica_productiva_inicio or self.practica_productiva_fin:
+            if self.practica_productiva_fin and hoy <= self.practica_productiva_fin:
+                return 'PRODUCTIVA'
+        # Si ambas vencieron
+        if self.practica_productiva_fin and hoy > self.practica_productiva_fin:
+            return 'CULMINADA'
+        if self.practica_lectiva_fin and hoy > self.practica_lectiva_fin:
+            return 'CULMINADA'
+        return None
+
+    @property
+    def fecha_fin_practica_actual(self):
+        hoy = timezone.now().date()
+        if self.practica_lectiva_fin and hoy <= self.practica_lectiva_fin:
+            return self.practica_lectiva_fin
+        if self.practica_productiva_fin and hoy <= self.practica_productiva_fin:
+            return self.practica_productiva_fin
+        return self.practica_productiva_fin or self.practica_lectiva_fin
+
+    @property
+    def dias_para_fin_practica(self):
+        """
+        Días restantes para culminar la etapa de práctica activa o más reciente.
+        """
+        fin = self.fecha_fin_practica_actual
+        if not fin:
+            return None
+        return (fin - timezone.now().date()).days
+
+    @property
+    def en_practicas(self):
+        """
+        Indica si el colaborador tiene registradas fechas de etapa lectiva o productiva,
+        o cuenta con cargo de Aprendiz SENA.
+        """
+        return bool(
+            self.practica_lectiva_inicio or self.practica_lectiva_fin or
+            self.practica_productiva_inicio or self.practica_productiva_fin or
+            (self.cargo and 'APRENDIZ' in self.cargo.upper())
+        )
+

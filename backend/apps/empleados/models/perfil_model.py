@@ -91,3 +91,22 @@ class EmpleadoPerfil(models.Model):
         if hasattr(self, 'laboral') and self.laboral:
             return self.laboral.en_periodo_prueba
         return False
+
+    @property
+    def dias_para_fin_practica(self):
+        if hasattr(self, 'laboral') and self.laboral:
+            return self.laboral.dias_para_fin_practica
+        return None
+
+    @property
+    def etapa_practica_activa(self):
+        if hasattr(self, 'laboral') and self.laboral:
+            return self.laboral.etapa_practica_activa
+        return None
+
+    @property
+    def en_practicas(self):
+        if hasattr(self, 'laboral') and self.laboral:
+            return self.laboral.en_practicas
+        return False
+

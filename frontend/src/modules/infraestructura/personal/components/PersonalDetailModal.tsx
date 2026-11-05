@@ -33,13 +33,14 @@ import {
   Pencil,
   Shirt,
   FileText,
+  FileCheck,
   ExternalLink,
   Edit3,
   Upload,
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
-import { EmpleadoPerfilCompleto, EmpleadoAuditoriaLog, EmpleadoPersonaACargo } from "@/types/empleado";
+import { EmpleadoPerfilCompleto, EmpleadoAuditoriaLog, EmpleadoPersonaACargo, EmpleadoDotacionComprobante } from "@/types/empleado";
 import { personalService } from "../services/personalService";
 import { ModalCuentaBancaria } from "./ModalCuentaBancaria";
 import { ModalContactoEmergencia } from "./ModalContactoEmergencia";
@@ -48,6 +49,7 @@ import { ModalConfirmarEliminacion } from "./ModalConfirmarEliminacion";
 import { ModalEntregaGH } from "./ModalEntregaGH";
 import { ModalAsignarPlaca } from "./ModalAsignarPlaca";
 import { ModalEditarPerfil } from "./ModalEditarPerfil";
+import { ModalSubirComprobanteDotacion } from "./ModalSubirComprobanteDotacion";
 
 
 const resolveFotoUrl = (url?: string | null): string | undefined => {
@@ -289,6 +291,49 @@ export const PersonalDetailModal: React.FC<Props> = ({
 
   const [showModalEditar, setShowModalEditar] = useState(false);
   const [seccionEditar, setSeccionEditar] = useState<"laboral" | "contacto" | "sst" | "dotacion" | "movilidad">("laboral");
+  const [showModalSubirComprobanteDotacion, setShowModalSubirComprobanteDotacion] = useState(false);
+  const [comprobanteAEliminar, setComprobanteAEliminar] = useState<EmpleadoDotacionComprobante | null>(null);
+  const [isDeletingComprobante, setIsDeletingComprobante] = useState(false);
+
+  const handleSubirComprobanteSuccess = (nuevoComprobante: EmpleadoDotacionComprobante) => {
+    if (empleado) {
+      const actualizados = [nuevoComprobante, ...(empleado.comprobantes_dotacion || [])];
+      usePersonalStore.getState().updateLocalItem({
+        ...empleado,
+        comprobantes_dotacion: actualizados,
+      });
+      usePersonalStore.getState().fetchEmpleadoDetail(empleado.id);
+      if (onRefresh) onRefresh();
+    }
+  };
+
+  const handleConfirmarEliminarComprobante = (comp: EmpleadoDotacionComprobante) => {
+    setComprobanteAEliminar(comp);
+  };
+
+  const handleEjecutarEliminarComprobante = async () => {
+    if (!empleado || !comprobanteAEliminar) return;
+    setIsDeletingComprobante(true);
+    try {
+      await personalService.eliminarComprobanteDotacion(empleado.id, comprobanteAEliminar.id);
+      toast.success("Comprobante de dotación eliminado exitosamente.");
+      const filtrados = (empleado.comprobantes_dotacion || []).filter(
+        (c) => c.id !== comprobanteAEliminar.id
+      );
+      usePersonalStore.getState().updateLocalItem({
+        ...empleado,
+        comprobantes_dotacion: filtrados,
+      });
+      usePersonalStore.getState().fetchEmpleadoDetail(empleado.id);
+      if (onRefresh) onRefresh();
+      setComprobanteAEliminar(null);
+    } catch (err: any) {
+      console.error("Error al eliminar comprobante:", err);
+      toast.error(err.response?.data?.error || "Error al eliminar el comprobante de dotación.");
+    } finally {
+      setIsDeletingComprobante(false);
+    }
+  };
   const [auditLogs, setAuditLogs] = useState<EmpleadoAuditoriaLog[]>([]);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [expandedLogs, setExpandedLogs] = useState<Record<string | number, boolean>>({});
@@ -971,10 +1016,35 @@ export const PersonalDetailModal: React.FC<Props> = ({
                         </p>
                       </div>
 
-                      <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Riesgos Laborales (ARL)</p>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
-                          {empleado.seguridad_social?.arl || "COLMENA"}
+                      <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Riesgos Laborales (ARL)</p>
+                            {(empleado.seguridad_social?.certificado_arl_url ||
+                              empleado.documentos_adjuntos?.find((d) => d.tipo_documento === "CERTIFICADO_ARL" || d.tipo_documento === "ARL")?.archivo_url) && (
+                                <a
+                                  href={getMediaUrl(
+                                    empleado.seguridad_social?.certificado_arl_url ||
+                                    empleado.documentos_adjuntos?.find((d) => d.tipo_documento === "CERTIFICADO_ARL" || d.tipo_documento === "ARL")?.archivo_url
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span>Ver Certificado</span>
+                                </a>
+                              )}
+                          </div>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
+                            {empleado.seguridad_social?.arl || "COLMENA"}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">
+                          {empleado.seguridad_social?.certificado_arl_url ||
+                          empleado.documentos_adjuntos?.some((d) => d.tipo_documento === "CERTIFICADO_ARL" || d.tipo_documento === "ARL")
+                            ? "Certificado adjunto en expediente"
+                            : "Sin certificado digital adjunto"}
                         </p>
                       </div>
                     </div>
@@ -983,7 +1053,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
                   {/* Certificaciones y Vencimientos */}
                   <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
                     <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Aptitud y Certificaciones Operativas</p>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       {/* Curso Alturas */}
                       <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800 flex flex-col justify-between">
                         <div>
@@ -1011,6 +1081,46 @@ export const PersonalDetailModal: React.FC<Props> = ({
                         </div>
                         <p className="text-xs text-gray-400 mt-2">
                           Vence: {(empleado.certificaciones_sst || empleado.sst)?.vencimiento_alturas || (empleado.certificaciones_sst || empleado.sst)?.curso_alturas_fecha_vence || "N/A"}
+                        </p>
+                      </div>
+
+                      {/* Coordinador de Alturas */}
+                      <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Coordinador Alturas</p>
+                            {((empleado.certificaciones_sst || empleado.sst)?.certificado_coordinador_url ||
+                              empleado.documentos_adjuntos?.find((d) => d.tipo_documento === "CERTIFICADO_COORDINADOR" || d.tipo_documento === "COORDINADOR")?.archivo_url) && (
+                                <a
+                                  href={getMediaUrl(
+                                    (empleado.certificaciones_sst || empleado.sst)?.certificado_coordinador_url ||
+                                    empleado.documentos_adjuntos?.find((d) => d.tipo_documento === "CERTIFICADO_COORDINADOR" || d.tipo_documento === "COORDINADOR")?.archivo_url
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-2xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span>Ver PDF</span>
+                                </a>
+                              )}
+                          </div>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                            {(() => {
+                              const sst = empleado.certificaciones_sst || empleado.sst;
+                              const estado = sst?.estado_coordinador;
+                              if (!estado || estado === "NO_APLICA") {
+                                return (sst?.certificado_coordinador_url ? "Certificado" : "No aplica");
+                              }
+                              if (estado === "VIGENTE") return "Vigente";
+                              if (estado === "POR_VENCER") return "Por Vencer";
+                              if (estado === "VENCIDO") return "Vencido";
+                              return estado;
+                            })()}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">
+                          Vence: {(empleado.certificaciones_sst || empleado.sst)?.vencimiento_coordinador || "N/A"}
                         </p>
                       </div>
 
@@ -1133,6 +1243,118 @@ export const PersonalDetailModal: React.FC<Props> = ({
                       </span>
                     )}
                   </div>
+                </div>
+
+                {/* 4. Comprobantes y Actas Físicas de Dotación */}
+                <div className="rounded-xl border border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-100 dark:border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="h-4 w-4 text-brand-500" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        Comprobantes y Actas Físicas de Entrega de Dotación
+                      </h4>
+                      <span className="inline-flex items-center justify-center rounded-full bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
+                        {empleado.comprobantes_dotacion?.length || 0}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowModalSubirComprobanteDotacion(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white shadow-xs hover:bg-brand-700 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Cargar Comprobante</span>
+                    </button>
+                  </div>
+
+                  {/* Listado de Comprobantes */}
+                  {(!empleado.comprobantes_dotacion || empleado.comprobantes_dotacion.length === 0) ? (
+                    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 p-6 text-center dark:border-gray-800">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 text-gray-400 dark:bg-gray-800 dark:text-gray-500 mb-2">
+                        <FileText className="h-5 w-5" />
+                      </div>
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                        No hay actas o comprobantes de entrega de dotación cargados
+                      </p>
+                      <p className="text-[11px] text-gray-400 max-w-sm mt-0.5">
+                        Cargue el comprobante físico firmado por el colaborador como constancia de la entrega de prendas o elementos de protección personal.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowModalSubirComprobanteDotacion(true)}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400 transition-colors"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Cargar Primer Comprobante</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                      {empleado.comprobantes_dotacion.map((comp) => {
+                        const isPdf = comp.archivo_url?.toLowerCase().endsWith(".pdf");
+                        return (
+                          <div
+                            key={comp.id}
+                            className="flex flex-col justify-between rounded-xl border border-gray-200/70 bg-gray-50/50 p-3 hover:border-brand-200 transition-all dark:border-gray-800 dark:bg-gray-800/40"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                                  isPdf
+                                    ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
+                                    : "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400"
+                                }`}>
+                                  <FileText className="h-5 w-5" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-bold text-gray-900 dark:text-white">
+                                      Entrega: {comp.fecha_entrega}
+                                    </span>
+                                  </div>
+                                  {comp.subido_por_nombre && (
+                                    <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                                      Por: {comp.subido_por_nombre}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmarEliminarComprobante(comp)}
+                                className="rounded-lg p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/15 dark:hover:text-red-400 transition-colors"
+                                title="Eliminar comprobante"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+
+                            {comp.observaciones && (
+                              <p className="mt-2 text-xs text-gray-600 dark:text-gray-300 italic line-clamp-2 bg-white/70 dark:bg-gray-800/80 p-1.5 rounded-md border border-gray-100 dark:border-gray-700/50">
+                                &ldquo;{comp.observaciones}&rdquo;
+                              </p>
+                            )}
+
+                            <div className="mt-3 pt-2 border-t border-gray-200/50 dark:border-gray-800 flex items-center justify-between">
+                              <span className="text-[10px] text-gray-400">
+                                {comp.created_at ? new Date(comp.created_at).toLocaleDateString() : ""}
+                              </span>
+                              <a
+                                href={getMediaUrl(comp.archivo_url)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 hover:underline"
+                              >
+                                <span>Ver comprobante</span>
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1860,6 +2082,33 @@ export const PersonalDetailModal: React.FC<Props> = ({
             if (!isDeletingItem) setItemToDelete(null);
           }}
           onConfirm={handleConfirmarEliminacion}
+        />
+      )}
+
+      {/* Modal Subir Comprobante de Dotación */}
+      {showModalSubirComprobanteDotacion && (
+        <ModalSubirComprobanteDotacion
+          empleado={empleado}
+          isOpen={showModalSubirComprobanteDotacion}
+          onClose={() => setShowModalSubirComprobanteDotacion(false)}
+          onSuccess={handleSubirComprobanteSuccess}
+        />
+      )}
+
+      {/* Modal Confirmar Eliminación de Comprobante de Dotación */}
+      {comprobanteAEliminar && (
+        <ModalConfirmarEliminacion
+          isOpen={!!comprobanteAEliminar}
+          titulo="Eliminar Comprobante de Dotación"
+          mensaje={`¿Está seguro de que desea eliminar el comprobante de entrega con fecha ${comprobanteAEliminar.fecha_entrega}? Esta acción también eliminará el archivo físico del servidor.`}
+          nombreElemento={comprobanteAEliminar.observaciones || `Comprobante #${comprobanteAEliminar.id}`}
+          detalle={comprobanteAEliminar.archivo_url.split("/").pop()}
+          textoBotonConfirmar="Sí, Eliminar"
+          isLoading={isDeletingComprobante}
+          onClose={() => {
+            if (!isDeletingComprobante) setComprobanteAEliminar(null);
+          }}
+          onConfirm={handleEjecutarEliminarComprobante}
         />
       )}
 

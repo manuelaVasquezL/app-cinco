@@ -13,6 +13,7 @@ from apps.empleados.models import (
     EmpleadoMovilidad,
     EmpleadoAuditoriaLog,
     EmpleadoDocumentoAdjunto,
+    EmpleadoDotacionComprobante,
 )
 from apps.empleados.serializers import (
     EmpleadoPerfilListSerializer,
@@ -25,6 +26,7 @@ from apps.empleados.serializers import (
     GestionarCuentaBancariaSerializer,
     EmpleadoCuentaBancariaSerializer,
     EmpleadoDocumentoAdjuntoSerializer,
+    EmpleadoDotacionComprobanteSerializer,
 )
 from apps.empleados.services import EmpleadoWorkflowService
 
@@ -114,6 +116,17 @@ class EmpleadoPerfilViewSet(ModelViewSet):
                 laboral__fecha_ingreso__gte=limite,
                 laboral__fecha_ingreso__lte=timezone.now().date()
             ).order_by('laboral__fecha_ingreso')
+
+        # Filtro de aprendices en prácticas SENA (Regla Legacy 2.8 / getInfoContratosPracticas)
+        practicas = params.get('solo_practicas') or params.get('practicas')
+        if practicas and str(practicas).lower() in ['true', '1', 'si']:
+            qs = qs.filter(
+                Q(laboral__practica_lectiva_inicio__isnull=False) |
+                Q(laboral__practica_lectiva_fin__isnull=False) |
+                Q(laboral__practica_productiva_inicio__isnull=False) |
+                Q(laboral__practica_productiva_fin__isnull=False) |
+                Q(laboral__cargo__icontains='APRENDIZ')
+            )
 
         search = params.get('search')
         if search:
@@ -428,6 +441,12 @@ class EmpleadoPerfilViewSet(ModelViewSet):
         elif tipo_documento in ['CERTIFICADO_ALTURAS', 'ALTURAS']:
             categoria = 'alturas'
             nombre_guardado = f"{perfil.numero_documento}_certificado_alturas{ext}"
+        elif tipo_documento in ['CERTIFICADO_COORDINADOR', 'COORDINADOR_ALTURAS', 'COORDINADOR']:
+            categoria = 'alturas'
+            nombre_guardado = f"{perfil.numero_documento}_certificado_coordinador{ext}"
+        elif tipo_documento in ['CERTIFICADO_ARL', 'ARL']:
+            categoria = 'arl'
+            nombre_guardado = f"{perfil.numero_documento}_certificado_arl{ext}"
         elif tipo_documento in ['PERMISO_TRABAJO', 'PERMISO']:
             categoria = 'alturas'
             nombre_guardado = f"{perfil.numero_documento}_permiso_trabajo{ext}"
@@ -458,13 +477,23 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             defaults={'archivo_url': archivo_url}
         )
 
-        # Sincronizar con EmpleadoCertificacionesSST si es certificado de SST
-        if tipo_documento == 'CERTIFICADO_ALTURAS':
+        # Sincronizar con EmpleadoCertificacionesSST o EmpleadoSeguridadSocial
+        if tipo_documento in ['CERTIFICADO_ALTURAS', 'ALTURAS']:
             from apps.empleados.models import EmpleadoCertificacionesSST
             sst, _ = EmpleadoCertificacionesSST.objects.get_or_create(empleado=perfil)
             sst.certificado_alturas_url = archivo_url
             sst.save(update_fields=['certificado_alturas_url'])
-        elif tipo_documento in ['CERTIFICADO_TECNICO', 'CERTIFICADO_MEDICO']:
+        elif tipo_documento in ['CERTIFICADO_COORDINADOR', 'COORDINADOR_ALTURAS', 'COORDINADOR']:
+            from apps.empleados.models import EmpleadoCertificacionesSST
+            sst, _ = EmpleadoCertificacionesSST.objects.get_or_create(empleado=perfil)
+            sst.certificado_coordinador_url = archivo_url
+            sst.save(update_fields=['certificado_coordinador_url'])
+        elif tipo_documento in ['CERTIFICADO_ARL', 'ARL']:
+            from apps.empleados.models import EmpleadoSeguridadSocial
+            ss, _ = EmpleadoSeguridadSocial.objects.get_or_create(empleado=perfil)
+            ss.certificado_arl_url = archivo_url
+            ss.save(update_fields=['certificado_arl_url'])
+        elif tipo_documento in ['CERTIFICADO_TECNICO', 'CERTIFICADO_MEDICO', 'EXAMEN_MEDICO']:
             from apps.empleados.models import EmpleadoCertificacionesSST
             sst, _ = EmpleadoCertificacionesSST.objects.get_or_create(empleado=perfil)
             sst.certificado_tecnico_url = archivo_url
@@ -510,14 +539,26 @@ class EmpleadoPerfilViewSet(ModelViewSet):
 
         doc.delete()
 
-        # Limpiar referencia en EmpleadoCertificacionesSST si es certificado SST
-        if tipo == 'CERTIFICADO_ALTURAS':
+        # Limpiar referencia en EmpleadoCertificacionesSST o EmpleadoSeguridadSocial
+        if tipo in ['CERTIFICADO_ALTURAS', 'ALTURAS']:
             from apps.empleados.models import EmpleadoCertificacionesSST
             sst = EmpleadoCertificacionesSST.objects.filter(empleado=perfil).first()
             if sst:
                 sst.certificado_alturas_url = None
                 sst.save(update_fields=['certificado_alturas_url'])
-        elif tipo in ['CERTIFICADO_TECNICO', 'CERTIFICADO_MEDICO']:
+        elif tipo in ['CERTIFICADO_COORDINADOR', 'COORDINADOR_ALTURAS', 'COORDINADOR']:
+            from apps.empleados.models import EmpleadoCertificacionesSST
+            sst = EmpleadoCertificacionesSST.objects.filter(empleado=perfil).first()
+            if sst:
+                sst.certificado_coordinador_url = None
+                sst.save(update_fields=['certificado_coordinador_url'])
+        elif tipo in ['CERTIFICADO_ARL', 'ARL']:
+            from apps.empleados.models import EmpleadoSeguridadSocial
+            ss = EmpleadoSeguridadSocial.objects.filter(empleado=perfil).first()
+            if ss:
+                ss.certificado_arl_url = None
+                ss.save(update_fields=['certificado_arl_url'])
+        elif tipo in ['CERTIFICADO_TECNICO', 'CERTIFICADO_MEDICO', 'EXAMEN_MEDICO']:
             from apps.empleados.models import EmpleadoCertificacionesSST
             sst = EmpleadoCertificacionesSST.objects.filter(empleado=perfil).first()
             if sst:
@@ -555,6 +596,24 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             laboral__fecha_ingreso__lte=hoy - timedelta(days=47)
         ).count()
 
+        # Métricas de Prácticas SENA (Regla Legacy 2.8)
+        aprendices_qs = EmpleadoPerfil.objects.filter(
+            estado='ACTIVO'
+        ).filter(
+            Q(laboral__practica_lectiva_inicio__isnull=False) |
+            Q(laboral__practica_lectiva_fin__isnull=False) |
+            Q(laboral__practica_productiva_inicio__isnull=False) |
+            Q(laboral__practica_productiva_fin__isnull=False) |
+            Q(laboral__cargo__icontains='APRENDIZ')
+        ).select_related('laboral')
+
+        total_practicas = aprendices_qs.count()
+        total_practicas_criticas = 0
+        for ap in aprendices_qs:
+            dias = ap.laboral.dias_para_fin_practica if hasattr(ap, 'laboral') and ap.laboral else None
+            if dias is not None and dias <= 15:
+                total_practicas_criticas += 1
+
         return Response({
             'total': total_activos + total_formacion + total_inactivos,
             'activos': total_activos,
@@ -563,6 +622,8 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             'con_vehiculo': total_vehiculo,
             'en_prueba': total_prueba,
             'prueba_critica': total_prueba_critica,
+            'en_practicas': total_practicas,
+            'practicas_criticas': total_practicas_criticas,
         })
 
     @action(detail=False, methods=['get'], url_path='supervisores')
@@ -698,3 +759,165 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             'message': 'Foto de perfil actualizada exitosamente.',
             'foto_url': archivo_url
         }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get', 'post'], parser_classes=[MultiPartParser, FormParser, JSONParser], url_path='comprobantes-dotacion')
+    def comprobantes_dotacion(self, request, pk=None):
+        """
+        GET: Lista el historial de comprobantes/actas físicas de entrega de dotación del colaborador.
+        POST: Carga un comprobante firmado (PDF o imagen), fecha de entrega y observaciones opcionales.
+              (Regla Legacy: guardar_dotacion / name-file_entrega_dotacion).
+        """
+        import os
+        import time
+        from datetime import date
+        from django.conf import settings
+
+        perfil = self.get_object()
+
+        if request.method == 'GET':
+            comprobantes = perfil.comprobantes_dotacion.all().order_by('-fecha_entrega', '-id')
+            serializer = EmpleadoDotacionComprobanteSerializer(comprobantes, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # POST: Subida de comprobante
+        archivo = (
+            request.FILES.get('archivo') or
+            request.FILES.get('file') or
+            request.FILES.get('name-file_entrega_dotacion')
+        )
+        if not archivo:
+            return Response(
+                {'error': 'No se proporcionó ningún archivo de comprobante de dotación.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar tipo de archivo
+        ext = os.path.splitext(archivo.name)[1].lower()
+        if ext not in ['.jpg', '.jpeg', '.png', '.webp', '.pdf']:
+            return Response(
+                {'error': 'Formato no soportado. Formatos permitidos: PDF, JPG, PNG o WebP.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar tamaño máximo (10MB)
+        if archivo.size > 10 * 1024 * 1024:
+            return Response(
+                {'error': 'El archivo supera el tamaño máximo permitido de 10 MB.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Fecha de entrega
+        fecha_raw = (
+            request.data.get('fecha_entrega') or
+            request.data.get('fecha_entrega_dotacion') or
+            request.data.get('fecha')
+        )
+        if fecha_raw:
+            try:
+                fecha_entrega = date.fromisoformat(str(fecha_raw).strip())
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': 'El formato de fecha de entrega es inválido. Use AAAA-MM-DD.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            fecha_entrega = date.today()
+
+        observaciones = request.data.get('observaciones', '')
+        if observaciones:
+            observaciones = str(observaciones).strip() or None
+        else:
+            observaciones = None
+
+        # Guardar archivo en media/infraestructura/dotacion/
+        sub_dir = os.path.join(settings.MEDIA_ROOT, 'infraestructura', 'dotacion')
+        os.makedirs(sub_dir, exist_ok=True)
+
+        timestamp = int(time.time())
+        fecha_str = fecha_entrega.strftime('%Y%m%d')
+        nombre_guardado = f"{perfil.numero_documento}_dotacion_{fecha_str}_{timestamp}{ext}"
+        ruta_absoluta = os.path.join(sub_dir, nombre_guardado)
+
+        with open(ruta_absoluta, 'wb+') as destino:
+            for chunk in archivo.chunks():
+                destino.write(chunk)
+
+        archivo_url = f"/media/infraestructura/dotacion/{nombre_guardado}"
+
+        # Determinar usuario responsable de la carga
+        subido_por = request.user if (request.user and request.user.is_authenticated) else perfil.user
+
+        comprobante = EmpleadoDotacionComprobante.objects.create(
+            empleado=perfil,
+            fecha_entrega=fecha_entrega,
+            observaciones=observaciones,
+            archivo_url=archivo_url,
+            subido_por=subido_por,
+        )
+
+        # Auditoría
+        try:
+            EmpleadoAuditoriaLog.objects.create(
+                empleado=perfil,
+                usuario=request.user if request.user.is_authenticated else None,
+                accion='CARGA_COMPROBANTE_DOTACION',
+                tabla_afectada='empleados_dotacion_comprobantes',
+                datos_nuevos={
+                    'id': comprobante.id,
+                    'fecha_entrega': str(fecha_entrega),
+                    'archivo_url': archivo_url,
+                    'observaciones': observaciones,
+                },
+                ip_origen=request.META.get('REMOTE_ADDR')
+            )
+        except Exception:
+            pass
+
+        return Response(EmpleadoDotacionComprobanteSerializer(comprobante).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path=r'comprobantes-dotacion/(?P<comprobante_id>[^/.]+)')
+    def eliminar_comprobante_dotacion(self, request, pk=None, comprobante_id=None):
+        """
+        Elimina un comprobante físico de dotación y su archivo del servidor.
+        """
+        import os
+        from django.conf import settings
+
+        perfil = self.get_object()
+        try:
+            comprobante = EmpleadoDotacionComprobante.objects.get(id=comprobante_id, empleado=perfil)
+        except EmpleadoDotacionComprobante.DoesNotExist:
+            return Response({'error': 'Comprobante de dotación no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Eliminar archivo físico en disco
+        if comprobante.archivo_url:
+            try:
+                rel_path = comprobante.archivo_url.lstrip('/')
+                if rel_path.startswith('media/'):
+                    rel_path = rel_path[6:]
+                abs_path = os.path.join(settings.MEDIA_ROOT, rel_path)
+                if os.path.exists(abs_path):
+                    os.remove(abs_path)
+            except Exception:
+                pass
+
+        # Auditoría
+        try:
+            EmpleadoAuditoriaLog.objects.create(
+                empleado=perfil,
+                usuario=request.user if request.user.is_authenticated else None,
+                accion='ELIMINACION_COMPROBANTE_DOTACION',
+                tabla_afectada='empleados_dotacion_comprobantes',
+                datos_anteriores={
+                    'id': comprobante.id,
+                    'fecha_entrega': str(comprobante.fecha_entrega),
+                    'archivo_url': comprobante.archivo_url,
+                },
+                ip_origen=request.META.get('REMOTE_ADDR')
+            )
+        except Exception:
+            pass
+
+        comprobante.delete()
+        return Response({'detail': 'Comprobante de dotación eliminado exitosamente.'}, status=status.HTTP_200_OK)
+
