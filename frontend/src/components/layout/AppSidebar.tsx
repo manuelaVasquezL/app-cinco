@@ -6,7 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "../../context/SidebarContext";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { House, Settings } from "lucide-react";
+import { House, Settings, Network } from "lucide-react";
 import { ChevronDownIcon, HorizontaLDots } from "../../icons/index";
 import { IconMessageChatbot } from '@tabler/icons-react';
 import { useAuthStore } from "@/store/auth.store";
@@ -49,6 +49,16 @@ const defaultNavItems: NavItem[] = [
     ],
   },
   {
+    name: "Implementación FO",
+    icon: <Network className="h-5 w-5" />,
+    subItems: [
+      {
+        name: "Mapping de Predios",
+        path: "/implementacion-fo/mapping",
+      },
+    ],
+  },
+  {
     name: "RRHH",
     subItems: [
       {
@@ -75,8 +85,6 @@ const defaultNavItems: NavItem[] = [
     path: "/configuraciones",
   },
 ];
-
-const othersItems: NavItem[] = [];
 
 const AppSidebar: React.FC = () => {
   const {
@@ -300,20 +308,17 @@ const AppSidebar: React.FC = () => {
     let matchedSubmenu: { type: "main" | "others"; index: number } | null =
       null;
 
-    ["main", "others"].forEach((menuType) => {
-      const items = menuType === "main" ? navItems : othersItems;
-      items.forEach((nav, index) => {
-        if (nav.subItems) {
-          nav.subItems.forEach((subItem) => {
-            if (subItem.path === pathname) {
-              matchedSubmenu = {
-                type: menuType as "main" | "others",
-                index,
-              };
-            }
-          });
-        }
-      });
+    navItems.forEach((nav, index) => {
+      if (nav.subItems) {
+        nav.subItems.forEach((subItem) => {
+          if (subItem.path === pathname) {
+            matchedSubmenu = {
+              type: "main",
+              index,
+            };
+          }
+        });
+      }
     });
 
     // Sync submenu open state with current route.
@@ -410,18 +415,6 @@ const AppSidebar: React.FC = () => {
               </h2>
               {renderMenuItems(navItems, "main")}
             </div>
-
-            {othersItems.length > 0 && (
-              <div>
-                <h2
-                  className={`mb-4 flex text-xs leading-5 text-gray-400 uppercase ${!isSidebarOpen ? "lg:justify-center" : "justify-start"
-                    }`}
-                >
-                  {isSidebarOpen ? "Others" : <HorizontaLDots />}
-                </h2>
-                {renderMenuItems(othersItems, "others")}
-              </div>
-            )}
           </div>
         </nav>
       </div>

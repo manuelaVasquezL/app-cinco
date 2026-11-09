@@ -34,6 +34,7 @@ urlpatterns = [
     path("operaciones/", include("apps.operaciones.urls")),
     path("empleados/", include("apps.empleados.urls")),
     path("ia-dev/", include("apps.ia_dev.urls")),
+    path("implementacion-fo/", include("apps.implementacion_fo.urls")),
 ]
 
 from django.conf import settings
