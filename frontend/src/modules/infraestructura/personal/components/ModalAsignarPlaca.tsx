@@ -148,10 +148,10 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
                 onChange={(e) => setMedioTransporte(e.target.value)}
                 className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               >
-                <option value="MOTO">MOTO - Motocicleta</option>
-                <option value="CARRO">CARRO - Automóvil / Camioneta</option>
+                <option value="MOTO">MOTO</option>
+                <option value="CARRO">CARRO</option>
                 <option value="TRANSPORTE_PUBLICO">TRANSPORTE PÚBLICO</option>
-                <option value="A_PIE">A PIE - Peatonal</option>
+                <option value="A_PIE">A PIE</option>
                 <option value="NINGUNO">NINGUNO</option>
               </select>
             </div>
