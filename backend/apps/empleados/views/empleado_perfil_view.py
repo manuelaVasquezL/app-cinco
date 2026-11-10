@@ -639,7 +639,7 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
         try:
             EmpleadoAuditoriaLog.objects.create(
                 empleado=perfil,
-                usuario=request.user if request.user.is_authenticated else None,
+                usuario=request.user if request.user and request.user.is_authenticated else None,
                 accion='CONSULTA_DOCUMENTO_SENSIBLE',
                 tabla_afectada='empleados_documentos_adjuntos',
                 datos_anteriores=None,

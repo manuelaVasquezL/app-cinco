@@ -36,7 +36,7 @@ class PuedeVerDocumentoIdentidad(BasePermission):
 
         return False
 
-    def has_permission(self, request, view):
+    def has_permission(self, request, view) -> bool:
         if not request.user or not request.user.is_authenticated:
             return False
 
@@ -46,7 +46,7 @@ class PuedeVerDocumentoIdentidad(BasePermission):
         # Para acciones detail, se evalúa en has_object_permission contra el perfil objetivo
         return True
 
-    def has_object_permission(self, request, view, obj):
+    def has_object_permission(self, request, view, obj) -> bool:
         perfil = getattr(obj, 'empleado', obj)
         return self.tiene_acceso(request.user, perfil)
 
@@ -57,7 +57,7 @@ class PuedeAprobarTraslado(BasePermission):
     """
     message = "No tienes autorización para aprobar o rechazar traslados de personal."
 
-    def has_permission(self, request, view):
+    def has_permission(self, request, view) -> bool:
         user = getattr(request, 'user', None)
         return bool(user and (user.is_superuser or user.has_perm(EmpleadosPermisos.APROBAR_TRASLADO)))
 
@@ -68,7 +68,7 @@ class PuedeImportarConciliacion(BasePermission):
     """
     message = "No tienes autorización para importar archivos de conciliación de nómina."
 
-    def has_permission(self, request, view):
+    def has_permission(self, request, view) -> bool:
         user = getattr(request, 'user', None)
         return bool(user and (user.is_superuser or user.has_perm(EmpleadosPermisos.IMPORTAR_CONCILIACION)))
 

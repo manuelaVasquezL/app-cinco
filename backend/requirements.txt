@@ -4,8 +4,9 @@ certifi==2026.10.23
 charset-normalizer==3.4.4
 Django==5.2.18
 django-cors-headers==4.9.0
-django-stubs==5.1.0
+django-stubs==6.1.2
 djangorestframework==3.18.3
+djangorestframework-stubs==3.18.2
 djangorestframework_simplejwt==5.5.1
 dotenv==0.9.9
 drf-spectacular==0.29.0

@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { X, UserPlus, AlertCircle, Loader2, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
+import DatePicker from "@/components/form/date-picker";
 import { personalService } from "../services/personalService";
 import { usePersonalStore } from "../store/usePersonalStore";
 
@@ -12,6 +13,14 @@ interface Props {
   onClose: () => void;
   onSuccess?: () => void;
 }
+
+const toDateOrUndefined = (value?: string | null): Date | undefined => {
+  if (!value) return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return undefined;
+  const [, year, month, day] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day), 12);
+};
 
 function calcularSeisMesesDespues(fechaIso: string): string {
   if (!fechaIso) return "";
@@ -45,8 +54,8 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
   const [primerApellido, setPrimerApellido] = useState("");
   const [segundoApellido, setSegundoApellido] = useState("");
   const [cargo, setCargo] = useState("");
-  const [ciudadOperacion, setCiudadOperacion] = useState("CALI");
-  const [tipoContrato, setTipoContrato] = useState("OBRA_LABOR");
+  const [ciudadOperacion, setCiudadOperacion] = useState("MEDELLIN");
+  const [tipoContrato, setTipoContrato] = useState("FIJO");
   const [practicaLectivaInicio, setPracticaLectivaInicio] = useState("");
   const [practicaLectivaFin, setPracticaLectivaFin] = useState("");
   const [practicaProductivaInicio, setPracticaProductivaInicio] = useState("");
@@ -60,7 +69,7 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!numeroDoc.trim() || !primerNombre.trim() || !primerApellido.trim() || !cargo.trim()) {
+    if (!numeroDoc.trim() || !primerNombre.trim() || !primerApellido.trim() || !cargo.trim() || !fechaIngreso) {
       toast.error("Complete los campos obligatorios (*)");
       return;
     }
@@ -237,7 +246,7 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                Cargo Operativo <span className="text-red-500">*</span>
+                Cargo <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -251,21 +260,23 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
 
             <div>
               <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                Ciudad de Operación
+                Sede - Cinco <span className="text-red-500">*</span>
               </label>
               <select
                 value={ciudadOperacion}
                 onChange={(e) => setCiudadOperacion(e.target.value)}
                 className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               >
-                <option value="CALI">CALI</option>
-                <option value="PALMIRA">PALMIRA</option>
-                <option value="YUMBO">YUMBO</option>
-                <option value="JAMUNDI">JAMUNDI</option>
-                <option value="BUENAVENTURA">BUENAVENTURA</option>
-                <option value="POPAYAN">POPAYAN</option>
-                <option value="BOGOTA">BOGOTA</option>
                 <option value="MEDELLIN">MEDELLIN</option>
+                <option value="BOGOTA">BOGOTA</option>
+                <option value="CALI">CALI</option>
+                <option value="CAUCASIA">CAUCASIA</option>
+                <option value="MONTERIA">MONTERIA</option>
+                <option value="ORIENTE">ORIENTE</option>
+                <option value="SINCELEJO">SINCELEJO</option>
+                <option value="TARAZA">TARAZA</option>
+                <option value="YARUMAL">YARUMAL</option>
+                
               </select>
             </div>
 
@@ -361,12 +372,19 @@ export const ModalCrearEmpleado: React.FC<Props> = ({
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
               Fecha de Ingreso <span className="text-red-500">*</span>
             </label>
-            <input
-              type="date"
-              value={fechaIngreso}
-              onChange={(e) => setFechaIngreso(e.target.value)}
-              required
-              className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            <DatePicker
+              id="fecha_ingreso_crear_empleado"
+              placeholder="AAAA-MM-DD"
+              defaultDate={fechaIngreso ? toDateOrUndefined(fechaIngreso) : undefined}
+              onChange={(dates: Date[] | Date) => {
+                const selected = Array.isArray(dates) ? dates[0] : dates;
+                if (selected instanceof Date && !isNaN(selected.getTime())) {
+                  const y = selected.getFullYear();
+                  const m = String(selected.getMonth() + 1).padStart(2, "0");
+                  const d = String(selected.getDate()).padStart(2, "0");
+                  setFechaIngreso(`${y}-${m}-${d}`);
+                }
+              }}
             />
           </div>
 

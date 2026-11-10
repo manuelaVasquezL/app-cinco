@@ -255,7 +255,7 @@ export const TablaSSFF: React.FC<TablaSSFFProps> = ({ onSelectEmpleado }) => {
           </svg>
         }
       >
-        Importar Reporte SSFF
+        Importar CSV
       </Button>
 
       <Button

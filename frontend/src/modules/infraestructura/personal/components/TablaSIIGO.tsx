@@ -272,7 +272,7 @@ export const TablaSIIGO: React.FC<TablaSIIGOProps> = ({ onSelectEmpleado }) => {
           </svg>
         }
       >
-        Importar Reporte SIIGO
+        Importar CSV
       </Button>
 
       <Button

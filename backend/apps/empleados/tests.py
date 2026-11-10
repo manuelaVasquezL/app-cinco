@@ -10,7 +10,6 @@ class BaseEmpleadoTestCase(TestCase):
     para garantizar que la base de datos no quede contaminada con registros efímeros.
     """
     def tearDown(self):
-        super().tearDown()
         try:
             from django.contrib.auth.models import User
             from apps.empleados.models import EmpleadoPerfil
@@ -20,6 +19,7 @@ class BaseEmpleadoTestCase(TestCase):
                 test_users.delete()
         except Exception:
             pass
+        super().tearDown()
 
 
 from rest_framework.parsers import FormParser, JSONParser
@@ -2325,13 +2325,13 @@ class HabeasDataDocumentosTests(BaseEmpleadoTestCase):
         self.u_gh.user_permissions.add(perm_cedula, perm_todos)
 
     def tearDown(self):
-        super().tearDown()
         import os
         try:
             if hasattr(self, 'fake_cedula_path') and os.path.exists(self.fake_cedula_path):
                 os.remove(self.fake_cedula_path)
         except Exception:
             pass
+        super().tearDown()
 
     def test_serializer_enmascara_url_cedula_sin_permiso(self):
         from apps.empleados.serializers import EmpleadoPerfilDetailSerializer
@@ -2381,6 +2381,186 @@ class HabeasDataDocumentosTests(BaseEmpleadoTestCase):
         # Verificar registro de auditoría creado
         logs_after = EmpleadoAuditoriaLog.objects.filter(empleado=self.p_owner, accion='CONSULTA_DOCUMENTO_SENSIBLE').count()
         self.assertEqual(logs_after, logs_before + 1)
-        resp.close()
+        # Cerrar el archivo físico sin disparar el signal request_finished que cierra la conexión a BD
+        for closable in getattr(resp, '_closable_objects', []):
+            try:
+                closable.close()
+            except Exception:
+                pass
+
+
+class PermisosEtapa5Tests(BaseEmpleadoTestCase):
+    """
+    Etapa 5: Pruebas Automatizadas (Unit Tests) del Sistema de Permisos y Habeas Data.
+    Test 1 (Alcance Líder): Un líder intenta consultar el perfil de alguien de otra área -> Recibe 404 Not Found.
+    Test 2 (Cédula sin permiso): Un técnico o líder sin ver_cedula intenta abrir una cédula -> Recibe 403 Forbidden y el serializador no revela la URL.
+    Test 3 (Cédula autorizada con auditoría): Un usuario de Gestión Humana descarga la cédula -> Descarga exitosa y se verifica que se creó el registro en EmpleadoAuditoriaLog.
+    Test 4 (Usuario sin perfil): Usuario admin sin EmpleadoPerfil -> No genera error 500.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import os
+        from django.conf import settings
+        from django.contrib.auth.models import User, Permission
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import (
+            EmpleadoPerfil,
+            EmpleadoLaboral,
+            EmpleadoDocumentoAdjunto,
+            EmpleadoAuditoriaLog,
+        )
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+
+        self.factory = APIRequestFactory()
+        self.view_retrieve = EmpleadoPerfilViewSet.as_view({'get': 'retrieve'})
+        self.view_list = EmpleadoPerfilViewSet.as_view({'get': 'list'})
+        self.view_cedula = EmpleadoPerfilViewSet.as_view({'get': 'documento_cedula'})
+
+        # Directorio y archivo físico de prueba para cédula
+        self.cedulas_dir = os.path.join(settings.MEDIA_ROOT, 'infraestructura', 'cedulas')
+        os.makedirs(self.cedulas_dir, exist_ok=True)
+        self.fake_cedula_path = os.path.join(self.cedulas_dir, 'test_unit_cedula_etapa5.pdf')
+        with open(self.fake_cedula_path, 'wb') as f:
+            f.write(b'%PDF-1.4 etapa 5 test content')
+
+        # 1. Líder de Operaciones en área 'REDES' (con permiso 'ver_equipo_empleados')
+        self.u_lider = User.objects.create(username='test_et5_lider')
+        self.p_lider = EmpleadoPerfil.objects.create(
+            user=self.u_lider, numero_documento='ET5_LID_001', nombres='Carlos', apellidos='Lider'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p_lider, area='REDES', carpeta='REDES_MED', cargo='LIDER', fecha_ingreso=date.today()
+        )
+        perm_equipo = Permission.objects.get(codename='ver_equipo_empleados', content_type__app_label='empleados')
+        self.u_lider.user_permissions.add(perm_equipo)
+
+        # 2. Técnico en su mismo equipo ('REDES') con cédula adjunta (para Test 2)
+        self.u_tec_redes = User.objects.create(username='test_et5_tec_redes')
+        self.p_tec_redes = EmpleadoPerfil.objects.create(
+            user=self.u_tec_redes, numero_documento='ET5_TEC_001', nombres='Luis', apellidos='Redes'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p_tec_redes, area='REDES', carpeta='REDES_MED', cargo='TECNICO', fecha_ingreso=date.today()
+        )
+        self.doc_cedula = EmpleadoDocumentoAdjunto.objects.create(
+            empleado=self.p_tec_redes,
+            tipo_documento='CEDULA_FRONTAL',
+            archivo_url='/media/infraestructura/cedulas/test_unit_cedula_etapa5.pdf'
+        )
+
+        # 3. Empleado de otra área ('SST') (para Test 1)
+        self.u_otra_area = User.objects.create(username='test_et5_otra_area')
+        self.p_otra_area = EmpleadoPerfil.objects.create(
+            user=self.u_otra_area, numero_documento='ET5_OTRA_001', nombres='Marta', apellidos='SST'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p_otra_area, area='SST', carpeta='SST_MED', cargo='INSPECTOR', fecha_ingreso=date.today()
+        )
+
+        # 4. Usuario de Gestión Humana (con 'ver_cedula' y 'ver_todos_empleados') (para Test 3)
+        self.u_gh = User.objects.create(username='test_et5_gh')
+        self.p_gh = EmpleadoPerfil.objects.create(
+            user=self.u_gh, numero_documento='ET5_GH_001', nombres='Ana', apellidos='GH'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p_gh, area='GESTION HUMANA', carpeta='GH', cargo='ANALISTA', fecha_ingreso=date.today()
+        )
+        perm_cedula = Permission.objects.get(codename='ver_cedula', content_type__app_label='empleados')
+        perm_todos = Permission.objects.get(codename='ver_todos_empleados', content_type__app_label='empleados')
+        self.u_gh.user_permissions.add(perm_cedula, perm_todos)
+
+        # 5. Usuario Admin sin EmpleadoPerfil (para Test 4)
+        self.u_admin_sin_perfil = User.objects.create(
+            username='test_et5_admin_sin_perfil', is_superuser=True, is_staff=True
+        )
+
+    def tearDown(self):
+        import os
+        try:
+            if hasattr(self, 'fake_cedula_path') and os.path.exists(self.fake_cedula_path):
+                os.remove(self.fake_cedula_path)
+        except Exception:
+            pass
+        super().tearDown()
+
+    def test_1_alcance_lider_consulta_otra_area_recibe_404(self):
+        """
+        Test 1 (Alcance Líder): Un líder intenta consultar el perfil de alguien de otra área -> Recibe 404 Not Found.
+        """
+        from rest_framework.test import force_authenticate
+        req = self.factory.get(f'/empleados/perfiles/{self.p_otra_area.id}/')
+        force_authenticate(req, user=self.u_lider)
+        resp = self.view_retrieve(req, pk=self.p_otra_area.id)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_2_cedula_sin_permiso_recibe_403_y_url_enmascarada(self):
+        """
+        Test 2 (Cédula sin permiso): Un técnico o líder sin ver_cedula intenta abrir una cédula -> Recibe 403 Forbidden
+        y el serializador no revela la URL física (archivo_url = None).
+        """
+        from rest_framework.test import force_authenticate
+        from apps.empleados.serializers import EmpleadoPerfilDetailSerializer
+
+        # 2a. Intento del líder (sin 'ver_cedula') de abrir la cédula de un colaborador de su equipo
+        req = self.factory.get(f'/empleados/perfiles/{self.p_tec_redes.id}/documento-cedula/?lado=frontal')
+        force_authenticate(req, user=self.u_lider)
+        resp = self.view_cedula(req, pk=self.p_tec_redes.id)
+        self.assertEqual(resp.status_code, 403)
+
+        # 2b. El serializador enmascara la URL en None para usuario sin permiso
+        req_ser = self.factory.get('/')
+        req_ser.user = self.u_lider
+        serializer = EmpleadoPerfilDetailSerializer(self.p_tec_redes, context={'request': req_ser})
+        data = serializer.data
+        self.assertFalse(data['puede_ver_documento_identidad'])
+        doc = next(d for d in data['documentos_adjuntos'] if d['tipo_documento'] == 'CEDULA_FRONTAL')
+        self.assertIsNone(doc['archivo_url'])
+        self.assertFalse(doc['tiene_permiso'])
+        self.assertTrue(doc['cargado'])
+
+    def test_3_cedula_autorizada_gh_descarga_exitosa_y_auditoria(self):
+        """
+        Test 3 (Cédula autorizada con auditoría): Un usuario de Gestión Humana descarga la cédula ->
+        Descarga exitosa (200 OK) y se verifica que se creó el registro en EmpleadoAuditoriaLog.
+        """
+        from rest_framework.test import force_authenticate
+        from apps.empleados.models import EmpleadoAuditoriaLog
+
+        logs_before = EmpleadoAuditoriaLog.objects.filter(
+            empleado=self.p_tec_redes, accion='CONSULTA_DOCUMENTO_SENSIBLE'
+        ).count()
+
+        req = self.factory.get(f'/empleados/perfiles/{self.p_tec_redes.id}/documento-cedula/?lado=frontal')
+        force_authenticate(req, user=self.u_gh)
+        resp = self.view_cedula(req, pk=self.p_tec_redes.id)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('inline', resp.headers.get('Content-Disposition', ''))
+        self.assertEqual(resp.headers.get('X-Content-Type-Options'), 'nosniff')
+
+        # Cerrar el archivo físico sin disparar el signal request_finished que cierra la conexión a BD
+        for closable in getattr(resp, '_closable_objects', []):
+            try:
+                closable.close()
+            except Exception:
+                pass
+
+        # Verificar que se creó el registro en EmpleadoAuditoriaLog
+        logs_after = EmpleadoAuditoriaLog.objects.filter(
+            empleado=self.p_tec_redes, accion='CONSULTA_DOCUMENTO_SENSIBLE'
+        ).count()
+        self.assertEqual(logs_after, logs_before + 1)
+
+    def test_4_usuario_admin_sin_perfil_no_genera_500(self):
+        """
+        Test 4 (Usuario sin perfil): Usuario admin sin EmpleadoPerfil -> No genera error 500.
+        """
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/empleados/perfiles/')
+        force_authenticate(req, user=self.u_admin_sin_perfil)
+        resp = self.view_list(req)
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotEqual(resp.status_code, 500)
 
 
