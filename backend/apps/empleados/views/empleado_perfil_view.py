@@ -29,9 +29,10 @@ from apps.empleados.serializers import (
     EmpleadoDotacionComprobanteSerializer,
 )
 from apps.empleados.services import EmpleadoWorkflowService
+from apps.empleados.mixins import ScopedEmpleadoQuerySetMixin
 
 
-class EmpleadoPerfilViewSet(ModelViewSet):
+class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
     """
     ViewSet modular para la administración integral de personal (especificacion_modelo_base_personal.md).
     Proporciona operaciones CRUD, filtros avanzados, máquina de estados de inducción,
@@ -49,7 +50,7 @@ class EmpleadoPerfilViewSet(ModelViewSet):
     ]
 
     def get_queryset(self):
-        qs = EmpleadoPerfil.objects.select_related(
+        base_qs = EmpleadoPerfil.objects.select_related(
             'laboral',
             'laboral__supervisor',
             'laboral__padrino',
@@ -67,7 +68,11 @@ class EmpleadoPerfilViewSet(ModelViewSet):
             'comprobantes_dotacion',
         )
 
-        params = self.request.query_params
+        qs = self.get_scoped_empleados_queryset(base_qs=base_qs)
+
+        params = getattr(self.request, 'query_params', None)
+        if params is None:
+            params = getattr(self.request, 'GET', {})
 
         # Filtrado por estado: por defecto solo ACTIVO, salvo 'all' o un estado específico
         estado = params.get('estado')
@@ -521,6 +526,14 @@ class EmpleadoPerfilViewSet(ModelViewSet):
         """
         perfil = self.get_object()
         tipo = (tipo_documento or '').strip().upper()
+        if tipo in ['CEDULA_FRONTAL', 'CEDULA_POSTERIOR', 'CEDULA']:
+            from apps.empleados.permissions import PuedeVerDocumentoIdentidad
+            if not PuedeVerDocumentoIdentidad.tiene_acceso(request.user, perfil):
+                return Response(
+                    {'error': 'No tienes autorización para eliminar documentos de identidad de este colaborador.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         doc = EmpleadoDocumentoAdjunto.objects.filter(empleado=perfil, tipo_documento=tipo).first()
         if not doc:
             return Response({'error': 'Documento no encontrado'}, status=status.HTTP_404_NOT_FOUND)
@@ -566,6 +579,90 @@ class EmpleadoPerfilViewSet(ModelViewSet):
                 sst.save(update_fields=['certificado_tecnico_url'])
 
         return Response({'success': True, 'msg': f'Documento {tipo} eliminado correctamente.'})
+
+    @action(detail=True, methods=['get'], url_path='documento-cedula')
+    def documento_cedula(self, request, pk=None):
+        """
+        Descarga o visualización protegida de la copia de la cédula (Habeas Data).
+        Requiere permiso 'empleados.ver_cedula', ser superusuario o ser el propio colaborador.
+        Registra auditoría en EmpleadoAuditoriaLog de cada acceso al documento sensible.
+        Query params:
+        - lado: 'frontal' o 'posterior' (por defecto 'frontal')
+        - tipo: 'CEDULA_FRONTAL' o 'CEDULA_POSTERIOR'
+        """
+        import os
+        import mimetypes
+        from django.http import FileResponse
+        from django.conf import settings
+        from apps.empleados.permissions import PuedeVerDocumentoIdentidad
+
+        perfil = self.get_object()
+
+        # Validar permiso de Habeas Data
+        if not PuedeVerDocumentoIdentidad.tiene_acceso(request.user, perfil):
+            return Response(
+                {'error': 'Acceso no autorizado por política de confidencialidad y Habeas Data.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Determinar el tipo de documento solicitado
+        lado = (request.query_params.get('lado') or '').strip().lower()
+        tipo_param = (request.query_params.get('tipo') or '').strip().upper()
+
+        if tipo_param in ['CEDULA_FRONTAL', 'CEDULA_POSTERIOR']:
+            tipo_doc = tipo_param
+        elif lado in ['posterior', 'reverso', 'trasera', 'atras']:
+            tipo_doc = 'CEDULA_POSTERIOR'
+        else:
+            tipo_doc = 'CEDULA_FRONTAL'
+
+        doc = EmpleadoDocumentoAdjunto.objects.filter(empleado=perfil, tipo_documento=tipo_doc).first()
+        if not doc or not doc.archivo_url:
+            return Response(
+                {'error': f'El documento {tipo_doc} no ha sido cargado en el expediente.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Resolver la ruta física en disco
+        rel_path = doc.archivo_url.lstrip('/')
+        if rel_path.startswith('media/'):
+            rel_path = rel_path[6:]
+        ruta_absoluta = os.path.join(settings.MEDIA_ROOT, rel_path)
+
+        if not os.path.exists(ruta_absoluta):
+            return Response(
+                {'error': 'El archivo físico no se encuentra disponible en el almacenamiento.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Auditoría obligatoria de acceso a documento sensible
+        try:
+            EmpleadoAuditoriaLog.objects.create(
+                empleado=perfil,
+                usuario=request.user if request.user.is_authenticated else None,
+                accion='CONSULTA_DOCUMENTO_SENSIBLE',
+                tabla_afectada='empleados_documentos_adjuntos',
+                datos_anteriores=None,
+                datos_nuevos={
+                    'tipo_documento': tipo_doc,
+                    'archivo_nombre': os.path.basename(ruta_absoluta),
+                    'motivo': 'Visualización segura de documento de identidad'
+                },
+                ip_origen=request.META.get('REMOTE_ADDR')
+            )
+        except Exception:
+            pass
+
+        # Servir el archivo con cabeceras de seguridad
+        content_type, _ = mimetypes.guess_type(ruta_absoluta)
+        if not content_type:
+            content_type = 'application/octet-stream'
+
+        response = FileResponse(open(ruta_absoluta, 'rb'), content_type=content_type)
+        response['Content-Disposition'] = f'inline; filename="{os.path.basename(ruta_absoluta)}"'
+        response['X-Content-Type-Options'] = 'nosniff'
+        response['Cache-Control'] = 'private, no-cache, no-store, must-revalidate'
+        return response
 
     @action(detail=False, methods=['get'], url_path='estadisticas')
     def estadisticas(self, request):

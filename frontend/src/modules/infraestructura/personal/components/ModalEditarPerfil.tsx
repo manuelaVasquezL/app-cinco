@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { X, Save, Loader2, Mail, Shield, Shirt, MapPin, User, FileText, Upload, ExternalLink, CheckCircle2, Briefcase, Building2, Calendar, Phone, Car, Trash2, Users } from "lucide-react";
+import { X, Save, Loader2, Mail, Shield, Shirt, MapPin, User, FileText, Upload, ExternalLink, CheckCircle2, Briefcase, Building2, Calendar, Phone, Car, Trash2, Users, Lock } from "lucide-react";
 import DatePicker from "@/components/form/date-picker";
 import { toast } from "sonner";
 import { EmpleadoPerfilCompleto, EmpleadoDocumentoAdjunto } from "@/types/empleado";
@@ -509,7 +509,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
       for (const tipo of tiposToUpload) {
         const file = pendingFiles[tipo]!;
         const doc = await personalService.subirDocumento(empleado.id, tipo, file);
-        uploadedDocs[tipo] = doc.archivo_url;
+        uploadedDocs[tipo] = doc.archivo_url || "";
       }
 
       // 3. Determinar URLs finales de certificaciones SST

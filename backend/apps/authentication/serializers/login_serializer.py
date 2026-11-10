@@ -36,6 +36,7 @@ class AuthUserSerializer(serializers.Serializer):
     area = serializers.CharField(allow_blank=True, required=False)
     carpeta = serializers.CharField(allow_blank=True, required=False)
     foto = serializers.CharField(allow_blank=True, required=False, allow_null=True)
+    permisos = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
 
 

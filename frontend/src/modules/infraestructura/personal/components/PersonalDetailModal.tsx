@@ -38,6 +38,7 @@ import {
   Edit3,
   Upload,
   ChevronDown,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { EmpleadoPerfilCompleto, EmpleadoAuditoriaLog, EmpleadoPersonaACargo, EmpleadoDotacionComprobante } from "@/types/empleado";
@@ -212,7 +213,23 @@ export const PersonalDetailModal: React.FC<Props> = ({
   const [isUploadingFoto, setIsUploadingFoto] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [cargandoCedulaLado, setCargandoCedulaLado] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleVerCedula = async (lado: "frontal" | "posterior") => {
+    if (!empleado) return;
+    try {
+      setCargandoCedulaLado(lado);
+      const url = await personalService.verDocumentoCedula(empleado.id, lado);
+      window.open(url, "_blank");
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.error || "No tienes autorización para consultar este documento de identidad (Habeas Data)."
+      );
+    } finally {
+      setCargandoCedulaLado(null);
+    }
+  };
 
   React.useEffect(() => {
     setImgError(false);
@@ -841,11 +858,15 @@ export const PersonalDetailModal: React.FC<Props> = ({
                       </button>
                     </div>
 
-                    {/* Soportes de Cédula (Lado y Lado) */}
+                    {/* Soportes de Cédula (Lado y Lado) - Protegidos por Habeas Data */}
                     <div className="pt-2 border-t border-gray-100 dark:border-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {(() => {
                         const frontal = empleado.documentos_adjuntos?.find((d) => d.tipo_documento === "CEDULA_FRONTAL");
                         const posterior = empleado.documentos_adjuntos?.find((d) => d.tipo_documento === "CEDULA_POSTERIOR");
+
+                        const tienePermisoFrontal = frontal?.tiene_permiso ?? empleado.puede_ver_documento_identidad ?? false;
+                        const tienePermisoPosterior = posterior?.tiene_permiso ?? empleado.puede_ver_documento_identidad ?? false;
+
                         return (
                           <>
                             <div className="flex items-center justify-between rounded-lg border border-gray-200/60 bg-gray-50/50 p-2 dark:border-gray-800 dark:bg-gray-800/40">
@@ -854,15 +875,29 @@ export const PersonalDetailModal: React.FC<Props> = ({
                                 Cédula Frontal
                               </span>
                               {frontal ? (
-                                <a
-                                  href={getMediaUrl(frontal.archivo_url)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 underline"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  <span>Ver</span>
-                                </a>
+                                tienePermisoFrontal ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerCedula("frontal")}
+                                    disabled={cargandoCedulaLado === "frontal"}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 underline cursor-pointer disabled:opacity-50"
+                                  >
+                                    {cargandoCedulaLado === "frontal" ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <ExternalLink className="h-3 w-3" />
+                                    )}
+                                    <span>Ver</span>
+                                  </button>
+                                ) : (
+                                  <span
+                                    title="Documento cargado pero protegido por política de Habeas Data"
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded-full"
+                                  >
+                                    <Lock className="h-2.5 w-2.5" />
+                                    <span>Privado</span>
+                                  </span>
+                                )
                               ) : (
                                 <span className="text-2xs text-gray-400 italic">Sin cargar</span>
                               )}
@@ -874,15 +909,29 @@ export const PersonalDetailModal: React.FC<Props> = ({
                                 Cédula Reverso
                               </span>
                               {posterior ? (
-                                <a
-                                  href={getMediaUrl(posterior.archivo_url)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 underline"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  <span>Ver</span>
-                                </a>
+                                tienePermisoPosterior ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerCedula("posterior")}
+                                    disabled={cargandoCedulaLado === "posterior"}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 underline cursor-pointer disabled:opacity-50"
+                                  >
+                                    {cargandoCedulaLado === "posterior" ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <ExternalLink className="h-3 w-3" />
+                                    )}
+                                    <span>Ver</span>
+                                  </button>
+                                ) : (
+                                  <span
+                                    title="Documento cargado pero protegido por política de Habeas Data"
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded-full"
+                                  >
+                                    <Lock className="h-2.5 w-2.5" />
+                                    <span>Privado</span>
+                                  </span>
+                                )
                               ) : (
                                 <span className="text-2xs text-gray-400 italic">Sin cargar</span>
                               )}
@@ -1475,7 +1524,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
                           </div>
                         </div>
 
-                        {licDoc ? (
+                        {licDoc && licDoc.archivo_url ? (
                           <a
                             href={licDoc.archivo_url.startsWith("http") ? licDoc.archivo_url : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${licDoc.archivo_url}`}
                             target="_blank"

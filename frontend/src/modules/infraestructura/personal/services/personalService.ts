@@ -187,6 +187,18 @@ export const personalService = {
   },
 
   /**
+   * Obtiene la visualización segura del documento de identidad (Habeas Data).
+   * Retorna una URL Blob segura para abrir en visor o pestaña nueva.
+   */
+  async verDocumentoCedula(id: number, lado: 'frontal' | 'posterior' = 'frontal'): Promise<string> {
+    const response = await api.get(`/empleados/perfiles/${id}/documento-cedula/`, {
+      params: { lado },
+      responseType: 'blob',
+    });
+    return URL.createObjectURL(response.data);
+  },
+
+  /**
    * Registra o actualiza un contacto de emergencia (Red de Apoyo).
    */
   async gestionarContactoEmergencia(

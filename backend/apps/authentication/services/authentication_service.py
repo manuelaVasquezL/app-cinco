@@ -107,6 +107,28 @@ class AuthenticationService:
         except Exception:
             pass
 
+        # Complementar desde EmpleadoPerfil si no se encontraron en Empleado legacy
+        if not area or not carpeta or not foto:
+            try:
+                perfil = getattr(user, 'empleado_perfil', None)
+                if perfil:
+                    if not foto and perfil.foto_url:
+                        foto = perfil.foto_url
+                    laboral = getattr(perfil, 'laboral', None)
+                    if laboral:
+                        if not area and laboral.area:
+                            area = laboral.area
+                        if not carpeta and laboral.carpeta:
+                            carpeta = laboral.carpeta
+            except Exception:
+                pass
+
+        permisos = []
+        try:
+            permisos = sorted(list(user.get_all_permissions()))
+        except Exception:
+            pass
+
         return {
             "id": user.id,
             "username": user.username,
@@ -117,6 +139,7 @@ class AuthenticationService:
             "area": area,
             "carpeta": carpeta,
             "foto": foto,
+            "permisos": permisos,
         }
 
 

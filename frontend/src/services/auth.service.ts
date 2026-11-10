@@ -10,6 +10,7 @@ export type AuthUser = {
   foto?: string;
   area?: string;
   carpeta?: string;
+  permisos?: string[];
 };
 
 export type LoginPayload = {

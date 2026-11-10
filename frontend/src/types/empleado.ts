@@ -239,8 +239,10 @@ export interface EmpleadoDocumentoAdjunto {
   tipo_documento?: string;
   tipo_documento_id?: number | null;
   nombre_tipo_documento?: string | null;
-  archivo_url: string;
+  archivo_url: string | null;
   fecha_subida?: string;
+  tiene_permiso?: boolean;
+  cargado?: boolean;
 }
 
 export interface EmpleadoAuditoriaLog {
@@ -366,6 +368,7 @@ export interface EmpleadoPerfilCompleto {
   personas_a_cargo?: EmpleadoPersonaACargo[];
   documentos_adjuntos?: EmpleadoDocumentoAdjunto[];
   comprobantes_dotacion?: EmpleadoDotacionComprobante[];
+  puede_ver_documento_identidad?: boolean;
 
   // Métricas
   dias_en_empresa?: number;

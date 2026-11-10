@@ -22,6 +22,9 @@ migrations/
 !backend/apps/security/migrations/
 !backend/apps/security/migrations/__init__.py
 !backend/apps/security/migrations/*.py
+!backend/apps/empleados/migrations/
+!backend/apps/empleados/migrations/__init__.py
+!backend/apps/empleados/migrations/*.py
 
 # If you're using Django's static files (collectstatic)
 staticfiles/

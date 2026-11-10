@@ -64,6 +64,14 @@ class EmpleadoPerfil(models.Model):
         app_label = 'empleados'
         db_table = 'empleados_perfil'
         ordering = ['apellidos', 'nombres']
+        permissions = [
+            ("ver_cedula", "Puede ver y descargar copias de documentos de identidad (Habeas Data)"),
+            ("ver_todos_empleados", "Puede consultar colaboradores de toda la organización"),
+            ("ver_equipo_empleados", "Puede consultar colaboradores de su propia área o equipo"),
+            ("solicitar_traslado", "Puede emitir solicitudes de traslado de área y carpeta"),
+            ("aprobar_traslado", "Puede aprobar o rechazar solicitudes de traslado (GH)"),
+            ("importar_conciliacion", "Puede importar archivos de conciliación SIIGO y SSFF"),
+        ]
 
     def __str__(self):
         return f"{self.numero_documento} - {self.nombres} {self.apellidos}"

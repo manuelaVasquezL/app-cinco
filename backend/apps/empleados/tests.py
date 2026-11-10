@@ -2184,3 +2184,203 @@ class EmpleadoComprobantesDotacionTests(BaseEmpleadoTestCase):
         self.assertIn('practicas_criticas', stats)
         self.assertGreaterEqual(stats['en_practicas'], 1)
         self.assertGreaterEqual(stats['practicas_criticas'], 1)
+
+
+class ScopedEmpleadoQuerySetTests(BaseEmpleadoTestCase):
+    """
+    Pruebas unitarias para el mixin de alcance de datos ScopedEmpleadoQuerySetMixin (Fase 2).
+    Verifica que:
+    1. Superusuario ve todos los colaboradores.
+    2. Usuario con 'ver_todos_empleados' (GH/SST) ve todos los colaboradores.
+    3. Usuario con 'ver_equipo_empleados' (Líder) solo ve colaboradores de su área o supervisados por él.
+    4. Líder no ve a colaboradores de otra área.
+    5. Colaborador regular solo se ve a sí mismo en la lista.
+    6. Usuario sin perfil (admin técnico o bot) no genera 500 y recibe lista vacía.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import User, Permission
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+        from rest_framework.test import APIRequestFactory
+
+        self.factory = APIRequestFactory()
+        self.view = EmpleadoPerfilViewSet()
+
+        self.u_admin = User.objects.create(username='test_admin_scope', is_superuser=True)
+
+        self.u_gh = User.objects.create(username='test_gh_scope')
+        self.p_gh = EmpleadoPerfil.objects.create(user=self.u_gh, numero_documento='GH_SCOPE_001', nombres='Ana', apellidos='GH')
+        EmpleadoLaboral.objects.create(empleado=self.p_gh, area='GESTION HUMANA', carpeta='GH', cargo='ANALISTA', fecha_ingreso=date.today())
+        perm_todos = Permission.objects.get(codename='ver_todos_empleados', content_type__app_label='empleados')
+        self.u_gh.user_permissions.add(perm_todos)
+
+        self.u_lider = User.objects.create(username='test_lider_scope')
+        self.p_lider = EmpleadoPerfil.objects.create(user=self.u_lider, numero_documento='LID_SCOPE_001', nombres='Carlos', apellidos='Lider')
+        EmpleadoLaboral.objects.create(empleado=self.p_lider, area='REDES', carpeta='REDES_MED', cargo='LIDER', fecha_ingreso=date.today())
+        perm_equipo = Permission.objects.get(codename='ver_equipo_empleados', content_type__app_label='empleados')
+        self.u_lider.user_permissions.add(perm_equipo)
+
+        self.u_tec_redes = User.objects.create(username='test_tec_redes_scope')
+        self.p_tec_redes = EmpleadoPerfil.objects.create(user=self.u_tec_redes, numero_documento='TEC_SCOPE_001', nombres='Luis', apellidos='Redes')
+        EmpleadoLaboral.objects.create(empleado=self.p_tec_redes, area='REDES', carpeta='REDES_MED', cargo='TECNICO', supervisor=self.p_lider, fecha_ingreso=date.today())
+
+        self.u_tec_sst = User.objects.create(username='test_tec_sst_scope')
+        self.p_tec_sst = EmpleadoPerfil.objects.create(user=self.u_tec_sst, numero_documento='SST_SCOPE_001', nombres='Marta', apellidos='SST')
+        EmpleadoLaboral.objects.create(empleado=self.p_tec_sst, area='SST', carpeta='SST_MED', cargo='INSPECTOR', fecha_ingreso=date.today())
+
+        self.u_sin_perfil = User.objects.create(username='test_bot_scope_sin_perfil')
+
+    def test_superuser_ve_todos(self):
+        req = self.factory.get('/empleados/perfiles/')
+        req.user = self.u_admin
+        self.view.request = req
+        qs = self.view.get_queryset()
+        self.assertGreaterEqual(qs.count(), 4)
+        self.assertEqual(qs.filter(id__in=[self.p_gh.id, self.p_lider.id, self.p_tec_redes.id, self.p_tec_sst.id]).count(), 4)
+
+    def test_gh_con_permiso_ver_todos_ve_todos(self):
+        req = self.factory.get('/empleados/perfiles/')
+        req.user = self.u_gh
+        self.view.request = req
+        qs = self.view.get_queryset()
+        self.assertGreaterEqual(qs.count(), 4)
+        self.assertEqual(qs.filter(id__in=[self.p_gh.id, self.p_lider.id, self.p_tec_redes.id, self.p_tec_sst.id]).count(), 4)
+
+    def test_lider_solo_ve_su_area_y_supervisados(self):
+        req = self.factory.get('/empleados/perfiles/')
+        req.user = self.u_lider
+        self.view.request = req
+        qs = self.view.get_queryset()
+        ids = set(qs.values_list('id', flat=True))
+        self.assertIn(self.p_lider.id, ids)
+        self.assertIn(self.p_tec_redes.id, ids)
+        self.assertNotIn(self.p_tec_sst.id, ids)
+        self.assertNotIn(self.p_gh.id, ids)
+
+    def test_colaborador_regular_solo_se_ve_a_si_mismo(self):
+        req = self.factory.get('/empleados/perfiles/')
+        req.user = self.u_tec_redes
+        self.view.request = req
+        qs = self.view.get_queryset()
+        ids = list(qs.values_list('id', flat=True))
+        self.assertEqual(ids, [self.p_tec_redes.id])
+
+    def test_usuario_sin_perfil_retorna_vacio_sin_error_500(self):
+        req = self.factory.get('/empleados/perfiles/')
+        req.user = self.u_sin_perfil
+        self.view.request = req
+        qs = self.view.get_queryset()
+        self.assertEqual(qs.count(), 0)
+
+
+class HabeasDataDocumentosTests(BaseEmpleadoTestCase):
+    """
+    Pruebas unitarias para la protección de Documentos de Identidad (Habeas Data - Fase 3).
+    Verifica que:
+    1. El serializador enmascara archivo_url en None si el usuario no tiene permiso 'ver_cedula'.
+    2. El serializador entrega la URL completa a usuarios autorizados (GH / Superusuario).
+    3. El endpoint seguro /documento-cedula/ bloquea a usuarios no autorizados (403/404).
+    4. El endpoint seguro sirve el archivo a usuarios con permiso y registra la auditoría obligatoria.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import os
+        from django.conf import settings
+        from django.contrib.auth.models import User, Permission
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoDocumentoAdjunto
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+
+        self.factory = APIRequestFactory()
+        self.view_func = EmpleadoPerfilViewSet.as_view({'get': 'documento_cedula'})
+
+        # Crear archivo físico de prueba
+        self.cedulas_dir = os.path.join(settings.MEDIA_ROOT, 'infraestructura', 'cedulas')
+        os.makedirs(self.cedulas_dir, exist_ok=True)
+        self.fake_cedula_path = os.path.join(self.cedulas_dir, 'test_unit_cedula_frontal.pdf')
+        with open(self.fake_cedula_path, 'wb') as f:
+            f.write(b'%PDF-1.4 unit test content')
+
+        self.u_owner = User.objects.create(username='test_owner_hd')
+        self.p_owner = EmpleadoPerfil.objects.create(user=self.u_owner, numero_documento='HD_OWNER_001', nombres='Pedro', apellidos='Dueno')
+        EmpleadoLaboral.objects.create(empleado=self.p_owner, area='REDES', cargo='TECNICO', fecha_ingreso=date.today())
+        self.doc_cedula = EmpleadoDocumentoAdjunto.objects.create(
+            empleado=self.p_owner,
+            tipo_documento='CEDULA_FRONTAL',
+            archivo_url='/media/infraestructura/cedulas/test_unit_cedula_frontal.pdf'
+        )
+
+        self.u_sin_perm = User.objects.create(username='test_sin_perm_hd')
+        self.p_sin_perm = EmpleadoPerfil.objects.create(user=self.u_sin_perm, numero_documento='HD_SIN_001', nombres='Juan', apellidos='SinPerm')
+        EmpleadoLaboral.objects.create(empleado=self.p_sin_perm, area='REDES', cargo='TECNICO', fecha_ingreso=date.today())
+
+        self.u_gh = User.objects.create(username='test_gh_hd')
+        self.p_gh = EmpleadoPerfil.objects.create(user=self.u_gh, numero_documento='HD_GH_001', nombres='Maria', apellidos='GH')
+        EmpleadoLaboral.objects.create(empleado=self.p_gh, area='GESTION HUMANA', cargo='ANALISTA', fecha_ingreso=date.today())
+        perm_cedula = Permission.objects.get(codename='ver_cedula', content_type__app_label='empleados')
+        perm_todos = Permission.objects.get(codename='ver_todos_empleados', content_type__app_label='empleados')
+        self.u_gh.user_permissions.add(perm_cedula, perm_todos)
+
+    def tearDown(self):
+        super().tearDown()
+        import os
+        try:
+            if hasattr(self, 'fake_cedula_path') and os.path.exists(self.fake_cedula_path):
+                os.remove(self.fake_cedula_path)
+        except Exception:
+            pass
+
+    def test_serializer_enmascara_url_cedula_sin_permiso(self):
+        from apps.empleados.serializers import EmpleadoPerfilDetailSerializer
+        req = self.factory.get('/')
+        req.user = self.u_sin_perm
+        serializer = EmpleadoPerfilDetailSerializer(self.p_owner, context={'request': req})
+        data = serializer.data
+
+        self.assertFalse(data['puede_ver_documento_identidad'])
+        doc = next(d for d in data['documentos_adjuntos'] if d['tipo_documento'] == 'CEDULA_FRONTAL')
+        self.assertIsNone(doc['archivo_url'])
+        self.assertFalse(doc['tiene_permiso'])
+        self.assertTrue(doc['cargado'])
+
+    def test_serializer_entrega_url_cedula_con_permiso_gh(self):
+        from apps.empleados.serializers import EmpleadoPerfilDetailSerializer
+        req = self.factory.get('/')
+        req.user = self.u_gh
+        serializer = EmpleadoPerfilDetailSerializer(self.p_owner, context={'request': req})
+        data = serializer.data
+
+        self.assertTrue(data['puede_ver_documento_identidad'])
+        doc = next(d for d in data['documentos_adjuntos'] if d['tipo_documento'] == 'CEDULA_FRONTAL')
+        self.assertEqual(doc['archivo_url'], '/media/infraestructura/cedulas/test_unit_cedula_frontal.pdf')
+        self.assertTrue(doc['tiene_permiso'])
+
+    def test_endpoint_bloquea_usuario_sin_permiso(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get(f'/empleados/perfiles/{self.p_owner.id}/documento-cedula/?lado=frontal')
+        force_authenticate(req, user=self.u_sin_perm)
+        resp = self.view_func(req, pk=self.p_owner.id)
+        self.assertIn(resp.status_code, [403, 404])
+
+    def test_endpoint_exitoso_y_auditoria_con_permiso_gh(self):
+        from rest_framework.test import force_authenticate
+        from apps.empleados.models import EmpleadoAuditoriaLog
+
+        logs_before = EmpleadoAuditoriaLog.objects.filter(empleado=self.p_owner, accion='CONSULTA_DOCUMENTO_SENSIBLE').count()
+        req = self.factory.get(f'/empleados/perfiles/{self.p_owner.id}/documento-cedula/?lado=frontal')
+        force_authenticate(req, user=self.u_gh)
+        resp = self.view_func(req, pk=self.p_owner.id)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('inline', resp.headers.get('Content-Disposition', ''))
+        self.assertEqual(resp.headers.get('X-Content-Type-Options'), 'nosniff')
+
+        # Verificar registro de auditoría creado
+        logs_after = EmpleadoAuditoriaLog.objects.filter(empleado=self.p_owner, accion='CONSULTA_DOCUMENTO_SENSIBLE').count()
+        self.assertEqual(logs_after, logs_before + 1)
+        resp.close()
+
+

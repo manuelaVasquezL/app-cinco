@@ -257,6 +257,9 @@ class EmpleadoPersonaACargoSerializer(serializers.ModelSerializer):
 
 
 class EmpleadoDocumentoAdjuntoSerializer(serializers.ModelSerializer):
+    tiene_permiso = serializers.SerializerMethodField()
+    cargado = serializers.SerializerMethodField()
+
     class Meta:
         model = EmpleadoDocumentoAdjunto
         fields = [
@@ -264,7 +267,34 @@ class EmpleadoDocumentoAdjuntoSerializer(serializers.ModelSerializer):
             'tipo_documento',
             'archivo_url',
             'fecha_subida',
+            'tiene_permiso',
+            'cargado',
         ]
+
+    def _es_documento_sensible(self, instance):
+        tipo = (instance.tipo_documento or '').upper()
+        return tipo in ['CEDULA_FRONTAL', 'CEDULA_POSTERIOR', 'CEDULA']
+
+    def get_cargado(self, instance):
+        return bool(instance.archivo_url)
+
+    def get_tiene_permiso(self, instance):
+        if not self._es_documento_sensible(instance):
+            return True
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        from apps.empleados.permissions import PuedeVerDocumentoIdentidad
+        return PuedeVerDocumentoIdentidad.tiene_acceso(user, instance.empleado)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        tiene_permiso = self.get_tiene_permiso(instance)
+        data['tiene_permiso'] = tiene_permiso
+        data['cargado'] = self.get_cargado(instance)
+        if not tiene_permiso:
+            # Enmascarar la URL física directa por política de Habeas Data
+            data['archivo_url'] = None
+        return data
 
 
 class EmpleadoAuditoriaLogSerializer(serializers.ModelSerializer):
@@ -397,6 +427,13 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
     personas_a_cargo = EmpleadoPersonaACargoSerializer(many=True, read_only=True)
     documentos_adjuntos = EmpleadoDocumentoAdjuntoSerializer(many=True, read_only=True)
     comprobantes_dotacion = EmpleadoDotacionComprobanteSerializer(many=True, read_only=True)
+    puede_ver_documento_identidad = serializers.SerializerMethodField()
+
+    def get_puede_ver_documento_identidad(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        from apps.empleados.permissions import PuedeVerDocumentoIdentidad
+        return PuedeVerDocumentoIdentidad.tiene_acceso(user, obj)
 
     class Meta:
         model = EmpleadoPerfil
@@ -417,6 +454,7 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
             'foto_url',
             'estado',
             'datos_adicionales',
+            'puede_ver_documento_identidad',
             'laboral',
             'contacto',
             'seguridad_social',
