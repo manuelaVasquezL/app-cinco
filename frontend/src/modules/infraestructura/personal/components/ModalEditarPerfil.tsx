@@ -393,6 +393,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [eps, setEps] = useState(empleado.seguridad_social?.eps || "SURA");
   const [arl, setArl] = useState(empleado.seguridad_social?.arl || "COLMENA");
   const [afp, setAfp] = useState(empleado.seguridad_social?.afp || empleado.seguridad_social?.afp_pensiones || "PORVENIR");
+  const [esquemaVacunacion, setEsquemaVacunacion] = useState(empleado.seguridad_social?.esquema_vacunacion || "");
   const [permisoTrabajo, setPermisoTrabajo] = useState(
     (empleado.certificaciones_sst || empleado.sst)?.permiso_trabajo || ""
   );
@@ -589,6 +590,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           arl: arl.trim() || null,
           certificado_arl_url: finalArlUrl || null,
           afp: afp.trim() || null,
+          esquema_vacunacion: esquemaVacunacion.trim() || null,
         },
         certificaciones_sst: {
           permiso_trabajo: permisoTrabajo.trim() || null,
@@ -1765,18 +1767,32 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Permiso de Trabajo */}
-              <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Permiso de Trabajo / Autorización SST
-                </label>
-                <input
-                  type="text"
-                  value={permisoTrabajo}
-                  onChange={(e) => setPermisoTrabajo(e.target.value)}
-                  placeholder="Ej: AUTORIZADO - ALTURAS Y CONFINADOS"
-                  className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
+              {/* Permiso de Trabajo y Esquema de Vacunación */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Permiso de Trabajo / Autorización SST
+                  </label>
+                  <input
+                    type="text"
+                    value={permisoTrabajo}
+                    onChange={(e) => setPermisoTrabajo(e.target.value)}
+                    placeholder="Ej: AUTORIZADO - ALTURAS Y CONFINADOS"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Esquema de Vacunación
+                  </label>
+                  <input
+                    type="text"
+                    value={esquemaVacunacion}
+                    onChange={(e) => setEsquemaVacunacion(e.target.value)}
+                    placeholder="Ej: COMPLETO (TÉTANO, HEPATITIS B, FIEBRE AMARILLA)"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
               </div>
 
               {/* Hidden file inputs for SST documents */}

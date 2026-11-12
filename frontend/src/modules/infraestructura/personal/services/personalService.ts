@@ -35,6 +35,14 @@ export interface CuadrillaInfoResponse {
   } | null;
 }
 
+export interface RestablecerContrasenaResponse {
+  success: boolean;
+  username: string;
+  temp_password: string;
+  mensaje: string;
+}
+
+
 export interface SupervisorOption {
   id: number;
   nombre: string;
@@ -149,6 +157,17 @@ export const personalService = {
     );
     return response.data;
   },
+
+  /**
+   * Genera una clave temporal para el colaborador y registra auditoría (Regla Legacy: restaurarcontra).
+   */
+  async restablecerContrasena(id: number): Promise<RestablecerContrasenaResponse> {
+    const response = await api.post<RestablecerContrasenaResponse>(
+      `/empleados/perfiles/${id}/restablecer-contrasena/`
+    );
+    return response.data;
+  },
+
 
   /**
    * Registra o actualiza una cuenta bancaria (normalizada a 12 dígitos).

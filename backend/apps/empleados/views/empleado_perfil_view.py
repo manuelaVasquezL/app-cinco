@@ -1,4 +1,5 @@
 from django.db.models import Q
+from django.core.exceptions import ValidationError
 from rest_framework import status, filters
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
@@ -1017,4 +1018,36 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
 
         comprobante.delete()
         return Response({'detail': 'Comprobante de dotación eliminado exitosamente.'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='restablecer-contrasena')
+    def restablecer_contrasena(self, request, pk=None):
+        """
+        Genera una clave temporal para el colaborador y audita la acción.
+        Regla Legacy: restaurarcontra (línea 2009 de infraestructura_cinco_sas.php).
+        """
+        perfil = self.get_object()
+
+        # Validación de seguridad: no restablecer superadministradores
+        target_user = getattr(perfil, 'user', None)
+        if target_user and target_user.is_superuser:
+            return Response(
+                {'error': 'No está permitido restablecer la contraseña de un superadministrador desde este módulo.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        ip_address = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
+
+        try:
+            resultado = EmpleadoWorkflowService.restablecer_contrasena(
+                perfil=perfil,
+                operador=request.user,
+                ip_origen=ip_address
+            )
+            return Response(resultado, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            msg = e.messages[0] if hasattr(e, 'messages') else str(e)
+            return Response({'error': msg}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f'Error al restablecer la contraseña: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 

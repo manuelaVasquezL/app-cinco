@@ -126,6 +126,7 @@ export interface EmpleadoSeguridadSocial {
   tipo_sangre_rh?: string | null;
   alergias_restricciones?: string | null;
   certificado_arl_url?: string | null;
+  esquema_vacunacion?: string | null;
 }
 
 export interface EmpleadoCertificacionesSST {

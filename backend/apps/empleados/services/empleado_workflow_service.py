@@ -1097,3 +1097,65 @@ class EmpleadoWorkflowService:
                 datos_nuevos=None,
                 ip_origen=ip_address
             )
+
+    @classmethod
+    @transaction.atomic
+    def restablecer_contrasena(
+        cls,
+        perfil: EmpleadoPerfil,
+        operador: User,
+        ip_origen: str = None
+    ) -> dict:
+        """
+        Regla Legacy: restaurarcontra (Línea 2009 de infraestructura_cinco_sas.php).
+        Genera una contraseña temporal segura que cumple la política de complejidad,
+        la asigna a la cuenta auth_user vinculada al colaborador y registra traza de auditoría.
+        """
+        import secrets
+
+        user = getattr(perfil, 'user', None)
+        if not user:
+            user = User.objects.filter(username=perfil.numero_documento).first()
+            if not user:
+                user = User.objects.create_user(
+                    username=perfil.numero_documento,
+                    first_name=perfil.nombres[:30],
+                    last_name=perfil.apellidos[:30],
+                )
+            perfil.user = user
+            perfil.save(update_fields=['user'])
+
+        if user.is_superuser:
+            raise ValidationError(
+                "No está permitido restablecer la contraseña de un superadministrador desde este módulo."
+            )
+
+        # Complejidad: Mayúscula, minúscula, número, especial, >= 8 caracteres
+        sufijo_hex = secrets.token_hex(2).upper()
+        num_aleatorio = secrets.randbelow(90) + 10
+        temp_password = f"Cinco.{sufijo_hex}!{num_aleatorio}"
+
+        user.set_password(temp_password)
+        user.save(update_fields=['password'])
+
+        # Auditoría obligatoria (Habeas Data) sin registrar la contraseña en claro
+        cls.registrar_auditoria(
+            empleado=perfil,
+            usuario=operador,
+            accion='RESTABLECER_CONTRASENA',
+            tabla_afectada='auth_user',
+            datos_anteriores=None,
+            datos_nuevos={
+                'motivo': 'Generación de clave temporal para acceso al sistema',
+                'username': user.username,
+            },
+            ip_origen=ip_origen
+        )
+
+        return {
+            'success': True,
+            'username': user.username,
+            'temp_password': temp_password,
+            'mensaje': f"Se ha generado una nueva contraseña temporal para {perfil.nombres} {perfil.apellidos}."
+        }
+

@@ -2564,3 +2564,116 @@ class PermisosEtapa5Tests(BaseEmpleadoTestCase):
         self.assertNotEqual(resp.status_code, 500)
 
 
+class RestablecerContrasenaTests(BaseEmpleadoTestCase):
+    """
+    Pruebas unitarias para la funcionalidad de restablecer / restaurar contraseña
+    de acceso del colaborador (Regla Legacy: restaurarcontra, línea 2009).
+    """
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import User, Permission
+        from rest_framework.test import APIRequestFactory
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+
+        self.factory = APIRequestFactory()
+        self.view_reset = EmpleadoPerfilViewSet.as_view({'post': 'restablecer_contrasena'})
+
+        # Operador de Gestión Humana
+        self.u_operador = User.objects.create_user(username='test_op_reset', password='OpPassword123!')
+        perm_todos = Permission.objects.get(codename='ver_todos_empleados', content_type__app_label='empleados')
+        self.u_operador.user_permissions.add(perm_todos)
+
+        # Colaborador objetivo
+        self.u_colaborador = User.objects.create_user(username='test_colab_reset', password='OldPassword123!')
+        self.p_colaborador = EmpleadoPerfil.objects.create(
+            user=self.u_colaborador,
+            numero_documento='1020304050',
+            nombres='Pedro',
+            apellidos='Perez'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p_colaborador,
+            area='OPERACIONES',
+            cargo='TECNICO',
+            fecha_ingreso=date.today()
+        )
+
+        # Superadministrador
+        self.u_super = User.objects.create_superuser(username='test_super_reset', password='SuperPassword123!', email='super@cinco.com')
+        self.p_super = EmpleadoPerfil.objects.create(
+            user=self.u_super,
+            numero_documento='999999999',
+            nombres='Admin',
+            apellidos='General'
+        )
+
+    def test_restablecer_contrasena_servicio_exitoso(self):
+        """
+        El servicio genera una clave que cumple la política de complejidad,
+        actualiza la contraseña del usuario y registra la traza de auditoría sin exponer la clave.
+        """
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+        from apps.empleados.models import EmpleadoAuditoriaLog
+        from apps.authentication.password_validators import ComplexityPasswordValidator
+
+        res = EmpleadoWorkflowService.restablecer_contrasena(
+            perfil=self.p_colaborador,
+            operador=self.u_operador,
+            ip_origen='192.168.1.50'
+        )
+
+        self.assertTrue(res['success'])
+        temp_pwd = res['temp_password']
+        self.assertTrue(temp_pwd)
+
+        # 1. Cumple ComplexityPasswordValidator
+        validator = ComplexityPasswordValidator()
+        validator.validate(temp_pwd)
+
+        # 2. El usuario puede autenticarse con la nueva contraseña y no con la anterior
+        self.u_colaborador.refresh_from_db()
+        self.assertTrue(self.u_colaborador.check_password(temp_pwd))
+        self.assertFalse(self.u_colaborador.check_password('OldPassword123!'))
+
+        # 3. Auditoría registrada en EmpleadoAuditoriaLog
+        log = EmpleadoAuditoriaLog.objects.filter(
+            empleado=self.p_colaborador, accion='RESTABLECER_CONTRASENA'
+        ).latest('created_at')
+        self.assertEqual(log.usuario, self.u_operador)
+        self.assertEqual(log.ip_origen, '192.168.1.50')
+        # La clave en claro NUNCA se guarda en el log
+        self.assertNotIn(temp_pwd, str(log.datos_nuevos))
+
+    def test_restablecer_contrasena_api_endpoint_200(self):
+        """
+        El endpoint POST /empleados/perfiles/{pk}/restablecer-contrasena/ retorna 200 OK con la clave temporal.
+        """
+        from rest_framework.test import force_authenticate
+
+        req = self.factory.post(f'/empleados/perfiles/{self.p_colaborador.id}/restablecer-contrasena/')
+        force_authenticate(req, user=self.u_operador)
+        resp = self.view_reset(req, pk=self.p_colaborador.id)
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.data
+        self.assertTrue(data['success'])
+        self.assertEqual(data['username'], self.u_colaborador.username)
+        self.assertTrue(len(data['temp_password']) >= 8)
+
+    def test_restablecer_contrasena_superusuario_bloqueado_403(self):
+        """
+        No se puede restablecer la contraseña de un superadministrador desde este endpoint (403 Forbidden).
+        """
+        from rest_framework.test import force_authenticate
+
+        req = self.factory.post(f'/empleados/perfiles/{self.p_super.id}/restablecer-contrasena/')
+        force_authenticate(req, user=self.u_operador)
+        resp = self.view_reset(req, pk=self.p_super.id)
+
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn('superadministrador', resp.data['error'].lower())
+
+
+

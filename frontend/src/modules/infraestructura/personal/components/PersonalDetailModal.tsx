@@ -8,7 +8,6 @@ import React, { useState } from "react";
 import {
   X,
   Camera,
-  ZoomIn,
   Briefcase,
   User,
   Users,
@@ -39,6 +38,7 @@ import {
   Upload,
   ChevronDown,
   Lock,
+  KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { EmpleadoPerfilCompleto, EmpleadoAuditoriaLog, EmpleadoPersonaACargo, EmpleadoDotacionComprobante } from "@/types/empleado";
@@ -51,19 +51,21 @@ import { ModalEntregaGH } from "./ModalEntregaGH";
 import { ModalAsignarPlaca } from "./ModalAsignarPlaca";
 import { ModalEditarPerfil } from "./ModalEditarPerfil";
 import { ModalSubirComprobanteDotacion } from "./ModalSubirComprobanteDotacion";
+import { ModalRestablecerContrasena } from "./ModalRestablecerContrasena";
 
 
 const resolveFotoUrl = (url?: string | null): string | undefined => {
   if (!url) return undefined;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/media/")) {
-    const base = API_BASE_URL.replace(/\/+$/, "");
-    return `${base}${url}`;
-  }
   if (url.startsWith("photos/")) {
     return `https://www.cincosas.com/2mp21d4s/${url}`;
   }
-  return url;
+  let base = API_BASE_URL.replace(/\/+$/, "");
+  if (base.endsWith("/api")) {
+    base = base.slice(0, -4);
+  }
+  const cleanPath = url.startsWith("/") ? url : `/${url}`;
+  return `${base}${cleanPath}`;
 };
 
 interface Props {
@@ -109,8 +111,13 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   fecha_ingreso: 'Fecha de Ingreso',
   fecha_entrega_area: 'Fecha Entrega a Operaciones',
   fecha_egreso: 'Fecha de Retiro / Egreso',
-  motivo_retiro_gh: 'Motivo de Retiro',
+  fecha_retiro: 'Fecha de Retiro / Egreso',
+  motivo_retiro_gh: 'Motivo de Retiro (GH)',
+  motivo_egreso: 'Motivo de Retiro (GH)',
+  motivo_egreso_real: 'Motivo Operativo de Retiro',
+  motivo_retiro_operaciones: 'Motivo Operativo de Retiro',
   observaciones_retiro: 'Observaciones de Retiro',
+  ciudad_operacion: 'Sede / Ciudad de Operación',
   salario_base: 'Salario Base',
   funcion_cargo: 'Función del Cargo',
   practica_lectiva_inicio: 'Inicio Práctica Lectiva',
@@ -309,6 +316,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
   const [showModalEditar, setShowModalEditar] = useState(false);
   const [seccionEditar, setSeccionEditar] = useState<"laboral" | "contacto" | "sst" | "dotacion" | "movilidad">("laboral");
   const [showModalSubirComprobanteDotacion, setShowModalSubirComprobanteDotacion] = useState(false);
+  const [showModalRestablecer, setShowModalRestablecer] = useState(false);
   const [comprobanteAEliminar, setComprobanteAEliminar] = useState<EmpleadoDotacionComprobante | null>(null);
   const [isDeletingComprobante, setIsDeletingComprobante] = useState(false);
 
@@ -448,7 +456,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
   return (
     <>
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-hidden animate-fade-in">
-        {/* Overlay con fondo claro difuminado idéntico a Operaciones (Actividades / Agenda) */}
+        {/* Overlay con fondo claro */}
         <div
           className="fixed inset-0 h-full w-full bg-gray-400/50 backdrop-blur-[32px] dark:bg-black/60 cursor-pointer"
           onClick={onClose}
@@ -466,9 +474,14 @@ export const PersonalDetailModal: React.FC<Props> = ({
                     className="h-full w-full rounded-2xl object-cover cursor-pointer transition-transform duration-200 group-hover:scale-105"
                     onClick={() => setIsZoomOpen(true)}
                     onError={() => setImgError(true)}
+                    title="Clic para ampliar fotografía"
                   />
                 ) : (
-                  <span className="cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                  <span
+                    className="cursor-pointer select-none"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Clic para subir fotografía"
+                  >
                     {getInitials()}
                   </span>
                 )}
@@ -513,36 +526,25 @@ export const PersonalDetailModal: React.FC<Props> = ({
                     {empleado.estado}
                   </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                <div className="mt-0.5">
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {empleado.tipo_documento} {empleado.numero_documento} • {empleado.laboral?.cargo || "Sin cargo asignado"} • {empleado.laboral?.ciudad_operacion || "Sin ciudad"}
+                    {empleado.tipo_documento} {empleado.numero_documento} • {empleado.laboral?.cargo || "Sin cargo asignado"} • {empleado.laboral?.sede || empleado.laboral?.ciudad_operacion || "Sin sede"}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploadingFoto}
-                    className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-brand-500/10 dark:hover:text-brand-400 transition-colors cursor-pointer"
-                    title="Subir nueva fotografía de perfil"
-                  >
-                    <Upload className="h-3 w-3" />
-                    <span>{isUploadingFoto ? "Subiendo..." : "Subir Foto"}</span>
-                  </button>
-                  {resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url) && !imgError && (
-                    <button
-                      type="button"
-                      onClick={() => setIsZoomOpen(true)}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 hover:text-brand-500 dark:text-brand-400 hover:underline cursor-pointer"
-                      title="Ver fotografía en tamaño completo"
-                    >
-                      <ZoomIn className="h-3 w-3" />
-                      <span>Ver Foto</span>
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowModalRestablecer(true)}
+                title="Restablecer o generar contraseña temporal de acceso"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-xs hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40 transition-colors cursor-pointer"
+              >
+                <KeyRound className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Restablecer Clave</span>
+              </button>
+
               <button
                 onClick={() => {
                   if (activeTab === "laboral") handleOpenEditar("laboral");
@@ -813,19 +815,19 @@ export const PersonalDetailModal: React.FC<Props> = ({
                   </div>
                 )}
 
-                {empleado.laboral?.motivo_retiro_gh && (
+                {(empleado.laboral?.motivo_egreso || empleado.laboral?.motivo_retiro_gh) && (
                   <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 dark:border-red-900/30 dark:bg-red-950/20">
                     <h5 className="text-xs font-bold text-red-800 dark:text-red-400 uppercase">
                       Información de Retiro / Egreso
                     </h5>
                     <p className="text-xs text-red-700 dark:text-red-300 mt-1">
-                      <strong>Motivo GH:</strong> {empleado.laboral.motivo_retiro_gh}
+                      <strong>Motivo GH:</strong> {empleado.laboral.motivo_egreso || empleado.laboral.motivo_retiro_gh}
                     </p>
                     <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
-                      <strong>Motivo Operaciones:</strong> {empleado.laboral.motivo_retiro_operaciones || "N/A"}
+                      <strong>Motivo Operaciones:</strong> {empleado.laboral.motivo_egreso_real || empleado.laboral.motivo_retiro_operaciones || "N/A"}
                     </p>
                     <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
-                      <strong>Fecha de Retiro:</strong> {empleado.laboral.fecha_retiro || "N/A"}
+                      <strong>Fecha de Retiro:</strong> {empleado.laboral.fecha_egreso || empleado.laboral.fecha_retiro || "N/A"}
                     </p>
                   </div>
                 )}
@@ -848,14 +850,25 @@ export const PersonalDetailModal: React.FC<Props> = ({
                           {empleado.pasaporte ? ` • Cédula Siigo: ${empleado.pasaporte}` : ""}
                         </p>
                       </div>
-                      <button
-                        onClick={() => handleOpenEditar("contacto")}
-                        className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
-                        title="Editar Identidad y Documentos"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        <span>Editar</span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setShowModalRestablecer(true)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400 transition-colors cursor-pointer"
+                          title="Restablecer o generar contraseña temporal de acceso"
+                        >
+                          <KeyRound className="h-3 w-3" />
+                          <span>Restablecer Clave</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditar("contacto")}
+                          className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400 cursor-pointer"
+                          title="Editar Identidad y Documentos"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          <span>Editar</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Soportes de Cédula (Lado y Lado) - Protegidos por Habeas Data */}
@@ -944,15 +957,15 @@ export const PersonalDetailModal: React.FC<Props> = ({
 
                   <div className="rounded-xl border border-gray-100 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900 flex items-start justify-between">
                     <div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Fecha de Nacimiento & Género</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Fecha de Nacimiento, Género & Estado Civil</p>
                       <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
-                        {empleado.fecha_nacimiento || "N/A"} • {empleado.genero || "N/A"}
+                        {empleado.fecha_nacimiento || "N/A"} • {empleado.genero || "N/A"}{empleado.estado_civil ? ` • ${empleado.estado_civil}` : ""}
                       </p>
                     </div>
                     <button
                       onClick={() => handleOpenEditar("contacto")}
                       className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400"
-                      title="Editar Fecha de Nacimiento y Género"
+                      title="Editar Datos Básicos y Estado Civil"
                     >
                       <Pencil className="h-3 w-3" />
                       <span>Editar</span>
@@ -1050,7 +1063,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
                   {/* Afiliaciones */}
                   <div>
                     <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Afiliaciones Integrales</p>
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                       <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800">
                         <p className="text-xs text-gray-500 dark:text-gray-400">Entidad EPS</p>
                         <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
@@ -1094,6 +1107,13 @@ export const PersonalDetailModal: React.FC<Props> = ({
                           empleado.documentos_adjuntos?.some((d) => d.tipo_documento === "CERTIFICADO_ARL" || d.tipo_documento === "ARL")
                             ? "Certificado adjunto en expediente"
                             : "Sin certificado digital adjunto"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Esquema Vacunación</p>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
+                          {empleado.seguridad_social?.esquema_vacunacion || "Sin registrar"}
                         </p>
                       </div>
                     </div>
@@ -1526,7 +1546,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
 
                         {licDoc && licDoc.archivo_url ? (
                           <a
-                            href={licDoc.archivo_url.startsWith("http") ? licDoc.archivo_url : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${licDoc.archivo_url}`}
+                            href={getMediaUrl(licDoc.archivo_url)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
@@ -1878,6 +1898,8 @@ export const PersonalDetailModal: React.FC<Props> = ({
                             return { color: "bg-amber-600", label: "Desvinculación de Cuadrilla" };
                           case "REACTIVACION":
                             return { color: "bg-purple-500", label: "Reactivación de Colaborador" };
+                          case "RESTABLECER_CONTRASENA":
+                            return { color: "bg-amber-500", label: "Restablecimiento de Contraseña Temporal" };
                           case "CUENTA_BANCARIA":
                             return { color: "bg-indigo-500", label: "Gestión de Cuenta Bancaria" };
                           case "CREACION_CONTACTO_EMERGENCIA":
@@ -2134,6 +2156,25 @@ export const PersonalDetailModal: React.FC<Props> = ({
         />
       )}
 
+      {/* Modal Restablecer Contraseña (Regla Legacy: restaurarcontra) */}
+      {showModalRestablecer && (
+        <ModalRestablecerContrasena
+          isOpen={showModalRestablecer}
+          empleadoId={empleado.id}
+          nombreEmpleado={empleado.nombre_completo || `${empleado.nombres} ${empleado.apellidos}`.trim()}
+          documentoEmpleado={empleado.numero_documento}
+          onClose={() => setShowModalRestablecer(false)}
+          onSuccess={() => {
+            if (activeTab === "auditoria") {
+              personalService
+                .getAuditoriaLog(empleado.id)
+                .then((data) => setAuditLogs(Array.isArray(data) ? data : []))
+                .catch(() => {});
+            }
+          }}
+        />
+      )}
+
       {/* Modal Subir Comprobante de Dotación */}
       {showModalSubirComprobanteDotacion && (
         <ModalSubirComprobanteDotacion
@@ -2162,43 +2203,63 @@ export const PersonalDetailModal: React.FC<Props> = ({
       )}
 
       {/* Modal Zoom Foto (Equivalente zoom_img_ruta del Legacy) */}
-      {isZoomOpen && resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url) && (
+      {isZoomOpen && (
         <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs transition-opacity"
+          className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-opacity animate-fade-in"
           onClick={() => setIsZoomOpen(false)}
         >
           <div
-            className="relative max-w-lg w-full rounded-2xl bg-white p-4 shadow-2xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
+            className="relative max-w-xl w-full rounded-3xl bg-white p-5 shadow-2xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <div>
-                <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">
                   {empleado.nombre_completo}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {empleado.tipo_documento} {empleado.numero_documento}
+                  {empleado.tipo_documento} {empleado.numero_documento} • {empleado.laboral?.cargo || "Colaborador"}
                 </p>
               </div>
-              <button
-                onClick={() => setIsZoomOpen(false)}
-                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url) && (
+                  <a
+                    href={resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200 cursor-pointer"
+                    title="Abrir imagen en pestaña nueva"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsZoomOpen(false)}
+                  className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-center overflow-hidden rounded-xl bg-gray-50 dark:bg-gray-800 max-h-[65vh]">
-              <img
-                src={resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url)}
-                alt={empleado.nombre_completo}
-                className="max-h-[65vh] w-auto object-contain rounded-xl"
-              />
+            <div className="mt-3 flex items-center justify-center overflow-hidden rounded-2xl bg-gray-50 dark:bg-gray-800 max-h-[65vh]">
+              {resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url) ? (
+                <img
+                  src={resolveFotoUrl(empleado.foto_url || empleado.foto_perfil_url)}
+                  alt={empleado.nombre_completo}
+                  className="max-h-[65vh] w-auto object-contain rounded-2xl shadow-xs"
+                />
+              ) : (
+                <div className="py-16 text-center text-xs text-gray-400">
+                  Fotografía no disponible.
+                </div>
+              )}
             </div>
 
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-[11px] text-gray-400">
-                {empleado.laboral?.cargo || "Fotografía de colaborador"}
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {empleado.laboral?.area || "Operaciones"} • {empleado.laboral?.sede || "Sede"}
               </span>
               <button
                 type="button"
@@ -2206,7 +2267,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
                   setIsZoomOpen(false);
                   fileInputRef.current?.click();
                 }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-400"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-600 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-400 cursor-pointer"
               >
                 <Camera className="h-3.5 w-3.5" />
                 <span>Cambiar foto</span>

@@ -20,6 +20,10 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
     supervisor_nombre = serializers.ReadOnlyField(source='supervisor.nombre_completo')
     padrino_nombre = serializers.ReadOnlyField(source='padrino.nombre_completo')
     entregado_por_nombre = serializers.ReadOnlyField(source='entregado_por.nombre_completo')
+    ciudad_operacion = serializers.CharField(source='sede', read_only=True)
+    motivo_retiro_gh = serializers.CharField(source='motivo_egreso', read_only=True)
+    motivo_retiro_operaciones = serializers.CharField(source='motivo_egreso_real', read_only=True)
+    fecha_retiro = serializers.DateField(source='fecha_egreso', read_only=True)
     dias_para_periodo_prueba = serializers.ReadOnlyField()
     en_periodo_prueba = serializers.ReadOnlyField()
     dias_para_fin_practica = serializers.ReadOnlyField()
@@ -59,6 +63,7 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
             'id',
             'codigo_sap',
             'sede',
+            'ciudad_operacion',
             'area',
             'carpeta',
             'puesto',
@@ -76,8 +81,11 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
             'nivel_estudio',
             'fecha_ingreso',
             'fecha_egreso',
+            'fecha_retiro',
             'motivo_egreso',
+            'motivo_retiro_gh',
             'motivo_egreso_real',
+            'motivo_retiro_operaciones',
             'etapa_induccion',
             'fecha_entrega_area',
             'entregado_por',
