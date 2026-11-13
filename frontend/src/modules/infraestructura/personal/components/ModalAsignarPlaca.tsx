@@ -26,12 +26,10 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
   const initialPlaca = empleado.placa_vehiculo || mov?.placa_vehiculo || "";
   const initialSabeConducir = mov?.sabe_conducir ?? true;
   const initialMedio = mov?.medio_transporte || "MOTO";
-  const initialModelo = mov?.modelo_vehiculo || "";
 
   const [placa, setPlaca] = useState(initialPlaca);
   const [sabeConducir, setSabeConducir] = useState<boolean>(initialSabeConducir);
   const [medioTransporte, setMedioTransporte] = useState<string>(initialMedio);
-  const [modeloVehiculo, setModeloVehiculo] = useState<string>(initialModelo);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
@@ -51,7 +49,7 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
         sabe_conducir: sabeConducir,
         conduce: sabeConducir,
         medio_transporte: medioTransporte,
-        modelo_vehiculo: modeloVehiculo.trim(),
+        modelo_vehiculo: mov?.modelo_vehiculo || "",
       });
 
       toast.success(res?.msg || `Vehículo con placa ${cleanPlaca} asignado a ${empleado.nombre_completo}`);
@@ -63,7 +61,7 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
             ...(mov || {}),
             sabe_conducir: sabeConducir,
             medio_transporte: medioTransporte,
-            modelo_vehiculo: modeloVehiculo.trim(),
+            modelo_vehiculo: mov?.modelo_vehiculo || "",
             placa_vehiculo: res.placa_vehiculo,
           },
         } as any);
@@ -89,7 +87,7 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative my-auto w-full max-w-lg rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl transition-all dark:border-gray-800 dark:bg-gray-900">
+      <div className="relative my-auto w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl transition-all dark:border-gray-800 dark:bg-gray-900">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
@@ -155,19 +153,6 @@ export const ModalAsignarPlaca: React.FC<Props> = ({
                 <option value="NINGUNO">NINGUNO</option>
               </select>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-              Modelo / Línea del Vehículo
-            </label>
-            <input
-              type="text"
-              value={modeloVehiculo}
-              onChange={(e) => setModeloVehiculo(e.target.value)}
-              placeholder="Ej: Yamaha XTZ 150 / Renault Duster 2022"
-              className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            />
           </div>
 
           <div className="flex items-center gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50/60 dark:border-gray-700 dark:bg-gray-800/40">

@@ -1,6 +1,8 @@
 import re
-from datetime import timedelta
-from django.db import transaction, connection
+import logging
+import calendar
+from datetime import timedelta, date
+from django.db import transaction, connection, connections
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
@@ -12,10 +14,13 @@ from apps.empleados.models import (
     EmpleadoSeguridadSocial,
     EmpleadoCertificacionesSST,
     EmpleadoDotacionActivos,
+    EmpleadoDotacionComprobante,
     EmpleadoMovilidad,
     EmpleadoCuentaBancaria,
     EmpleadoAuditoriaLog,
 )
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -466,7 +471,216 @@ class EmpleadoWorkflowService:
                 ip_origen=ip_address
             )
 
+        # Sincronización cruzada con la base de datos Legacy 'azul' (Punto 2.3)
+        placa_ant = datos_antes.get('placa_vehiculo')
+        sync_result = cls.sincronizar_placa_legacy_transporte(
+            empleado_perfil=perfil,
+            nueva_placa=placa,
+            conduce=conduce,
+            medio_transporte=medio_transporte,
+            placa_anterior=placa_ant,
+            user_operator=user_operator
+        )
+        setattr(movilidad, '_sync_legacy_transporte', sync_result)
+
         return movilidad
+
+    @classmethod
+    def sincronizar_placa_legacy_transporte(
+        cls,
+        empleado_perfil: EmpleadoPerfil,
+        nueva_placa: str | None,
+        conduce: bool | str = False,
+        medio_transporte: str = 'NINGUNO',
+        placa_anterior: str | None = None,
+        user_operator: User = None
+    ) -> dict:
+        """
+        Sincronización cruzada con la base de datos Legacy 'azul' (Punto 2.3):
+        Replica fielmente la lógica de 'editar_placa' y 'actualizarMovilRegistroSalida'
+        (líneas 214-270 y 1328-1420 de infraestructura_cinco_sas.php):
+        1. Desasigna en cinco_base_de_personal y transportadores_vehiculos si la placa previa cambió.
+        2. Actualiza cinco_base_de_personal con la nueva placa, conductor y datos JSON (conduce, transporte).
+        3. Actualiza transportadores_vehiculos (cedual_conductor = cedula, edit, fecha_edit).
+        4. Sincroniza transporte_registro_salida si el vehículo tiene modalidad 'pago_mensual'
+           para el mes actual y la cantidad de despachos generados coincide con los días del mes.
+        """
+        resultado = {
+            'placa_actualizada': False,
+            'vehiculo_actualizado': False,
+            'salidas_actualizadas': 0,
+            'pago_mensual_aplica': False,
+            'errores': []
+        }
+
+        cedula = str(empleado_perfil.numero_documento or '').strip()
+        if not cedula:
+            resultado['errores'].append("El empleado no posee número de documento.")
+            return resultado
+
+        edit_user = str(user_operator.username if user_operator else 'SISTEMA').strip()
+        placa_clean = nueva_placa.strip().upper() if nueva_placa else ''
+        placa_ant_clean = placa_anterior.strip().upper() if placa_anterior else ''
+
+        conduce_val = 'SI' if (conduce is True or str(conduce).strip().upper() in ('SI', '1', 'TRUE')) else 'NO'
+        transporte_val = str(medio_transporte or 'NINGUNO').strip().upper()
+
+        laboral = getattr(empleado_perfil, 'laboral', None)
+        if not laboral:
+            laboral = EmpleadoLaboral.objects.filter(empleado=empleado_perfil).first()
+        area = str(laboral.area or '').strip() if laboral else ''
+        carpeta = str(laboral.carpeta or '').strip() if laboral else ''
+
+        try:
+            conn_azul = connections['azul']
+            with transaction.atomic(using='azul'):
+                with conn_azul.cursor() as cursor:
+                    # 1. Liberar placa previa si cambió y existía
+                    if placa_ant_clean and placa_ant_clean != placa_clean:
+                        cursor.execute(
+                            """
+                            UPDATE transportadores_vehiculos 
+                            SET cedual_conductor = '', edit = %s, fecha_edit = NOW() 
+                            WHERE placa = %s AND cedual_conductor = %s
+                            """,
+                            [edit_user, placa_ant_clean, cedula]
+                        )
+                        cursor.execute(
+                            "UPDATE cinco_base_de_personal SET placa = '' WHERE placa = %s AND cedula = %s",
+                            [placa_ant_clean, cedula]
+                        )
+
+                    if placa_clean:
+                        # 2. Desasignar placa en cinco_base_de_personal (regla de exclusividad en legacy)
+                        cursor.execute(
+                            "UPDATE cinco_base_de_personal SET placa = '' WHERE placa = %s",
+                            [placa_clean]
+                        )
+
+                        # 3. Actualizar cinco_base_de_personal para el colaborador
+                        cursor.execute(
+                            """
+                            UPDATE cinco_base_de_personal 
+                            SET 
+                                placa = %s, 
+                                edit = %s, 
+                                fecha_edit = NOW(),
+                                datos = JSON_SET(
+                                    COALESCE(datos, '{}'), 
+                                    '$.conduce', %s, 
+                                    '$.transporte', %s
+                                ) 
+                            WHERE cedula = %s
+                            """,
+                            [placa_clean, edit_user, conduce_val, transporte_val, cedula]
+                        )
+                        resultado['placa_actualizada'] = True
+
+                        # 4. Actualizar transportadores_vehiculos
+                        cursor.execute(
+                            """
+                            UPDATE transportadores_vehiculos 
+                            SET cedual_conductor = %s, edit = %s, fecha_edit = NOW() 
+                            WHERE placa = %s
+                            """,
+                            [cedula, edit_user, placa_clean]
+                        )
+                        resultado['vehiculo_actualizado'] = (cursor.rowcount > 0)
+
+                        # 5. Regla de Registros de Salida (actualizarMovilRegistroSalida)
+                        hoy = timezone.localdate() if timezone.is_aware(timezone.now()) else date.today()
+                        mes_str = f"{hoy.month:02d}"
+                        _, ultimo_dia = calendar.monthrange(hoy.year, hoy.month)
+                        fecha_inicio = date(hoy.year, hoy.month, 1)
+                        fecha_fin = date(hoy.year, hoy.month, ultimo_dia)
+                        total_dias_mes = (fecha_fin - fecha_inicio).days + 1
+
+                        # Validar si el vehículo tiene modalidad pago mensual para el mes actual
+                        cursor.execute(
+                            """
+                            SELECT id, placa, valor_dia 
+                            FROM transportadores_vehiculos 
+                            WHERE JSON_CONTAINS(JSON_EXTRACT(datos, '$.pago_mensual[*].mes'), %s) 
+                            AND placa = %s 
+                            LIMIT 1
+                            """,
+                            [f'"{mes_str}"', placa_clean]
+                        )
+                        vehiculo_mensual = cursor.fetchone()
+
+                        if vehiculo_mensual:
+                            resultado['pago_mensual_aplica'] = True
+
+                            # Consultar registros de salida generados para el vehículo en el mes
+                            cursor.execute(
+                                """
+                                SELECT COUNT(*) 
+                                FROM transporte_registro_salida 
+                                WHERE JSON_EXTRACT(datos, '$.placa') = %s 
+                                AND DATE(fecha_salida) BETWEEN %s AND %s
+                                """,
+                                [placa_clean, fecha_inicio, fecha_fin]
+                            )
+                            cnt_row = cursor.fetchone()
+                            total_registros_salida = cnt_row[0] if cnt_row else 0
+
+                            # Si coincide la cantidad total de días del mes, actualizar registros de salida
+                            if total_registros_salida == total_dias_mes:
+                                cursor.execute(
+                                    """
+                                    UPDATE transporte_registro_salida AS trs
+                                    SET
+                                        trs.movil_sale = %s,
+                                        trs.cedula_tecnico = %s,
+                                        trs.edit = %s,
+                                        trs.fecha_edit = NOW(),
+                                        trs.datos = JSON_SET(
+                                            trs.datos,
+                                            '$.cc_sale', %s,
+                                            '$.movil_sale', %s,
+                                            '$.fecha_sale', DATE(trs.fecha_salida),
+                                            '$.movil_asignada', %s,
+                                            '$.cc_asignada', %s,
+                                            '$.area_sale', %s,
+                                            '$.carpeta_sale', %s
+                                        )
+                                    WHERE JSON_EXTRACT(trs.datos, '$.placa') = %s
+                                    AND DATE(trs.fecha_salida) BETWEEN %s AND %s
+                                    """,
+                                    [
+                                        cedula,
+                                        cedula,
+                                        edit_user,
+                                        cedula,
+                                        cedula,
+                                        cedula,
+                                        cedula,
+                                        area,
+                                        carpeta,
+                                        placa_clean,
+                                        fecha_inicio,
+                                        fecha_fin
+                                    ]
+                                )
+                                resultado['salidas_actualizadas'] = cursor.rowcount
+                    else:
+                        # Desasignación de placa: limpiar cinco_base_de_personal
+                        cursor.execute(
+                            """
+                            UPDATE cinco_base_de_personal 
+                            SET placa = '', edit = %s, fecha_edit = NOW() 
+                            WHERE cedula = %s
+                            """,
+                            [edit_user, cedula]
+                        )
+                        resultado['placa_actualizada'] = True
+
+        except Exception as e:
+            err_msg = f"Error en sincronización cruzada de transporte azul: {e}"
+            logger.warning(err_msg)
+            resultado['errores'].append(err_msg)
+
+        return resultado
 
     @classmethod
     @transaction.atomic
@@ -1157,5 +1371,147 @@ class EmpleadoWorkflowService:
             'username': user.username,
             'temp_password': temp_password,
             'mensaje': f"Se ha generado una nueva contraseña temporal para {perfil.nombres} {perfil.apellidos}."
+        }
+
+    @classmethod
+    def consultar_historial_dotacion_integral(
+        cls,
+        empleado_id: int,
+        numero_documento: str
+    ) -> dict:
+        """
+        Consulta unificada del historial de dotación (Punto 2.11):
+        1. Comprobantes y actas digitales subidos en app-cinco (db_cincosas.empleados_dotacion_comprobantes).
+        2. Actas históricas escaneadas en bd_c3nc4s1s.sst_base_entrega_dotacion (Legacy azul).
+        3. Despachos físicos de dotación y EPP desde bodega de Logística
+           (l4g3st3c1_c4ntr4l_3nv2nt1r34.control_inventario_movimientos_entrega).
+        """
+        actas = []
+
+        # 1. Comprobantes subidos en app-cinco
+        try:
+            comprobantes_locales = EmpleadoDotacionComprobante.objects.filter(
+                empleado_id=empleado_id
+            ).select_related('subido_por').order_by('-fecha_entrega', '-id')
+
+            for comp in comprobantes_locales:
+                subido_nombre = ''
+                if comp.subido_por:
+                    subido_nombre = comp.subido_por.get_full_name() or comp.subido_por.username
+
+                actas.append({
+                    'id': f"app_{comp.id}",
+                    'comprobante_id': comp.id,
+                    'origen': 'APP_CINCO',
+                    'origen_label': 'App Cinco',
+                    'fecha_entrega': comp.fecha_entrega.strftime('%Y-%m-%d') if comp.fecha_entrega else '',
+                    'observaciones': comp.observaciones or '',
+                    'archivo_url': comp.archivo_url,
+                    'subido_por': subido_nombre or 'Sistema',
+                    'created_at': comp.created_at.strftime('%Y-%m-%d %H:%M') if comp.created_at else '',
+                    'es_eliminable': True,
+                })
+        except Exception as e:
+            logger.warning(f"Error al consultar comprobantes locales de dotación: {e}")
+
+        # 2. Actas históricas del legacy (sst_base_entrega_dotacion en azul)
+        doc_limpio = str(numero_documento).strip() if numero_documento else ''
+        if doc_limpio:
+            try:
+                conn_azul = connections['azul']
+                with conn_azul.cursor() as c_azul:
+                    c_azul.execute(
+                        """
+                        SELECT id, fecha, url, edit, fecha_edit
+                        FROM sst_base_entrega_dotacion
+                        WHERE cedula = %s
+                        ORDER BY fecha DESC
+                        """,
+                        [doc_limpio]
+                    )
+                    rows = c_azul.fetchall()
+                    for r in rows:
+                        acta_id, fecha, raw_url, editor, f_edit = r
+                        url_limpia = str(raw_url).strip() if raw_url else ''
+                        if url_limpia:
+                            if url_limpia.startswith('http://') or url_limpia.startswith('https://'):
+                                full_url = url_limpia
+                            else:
+                                clean_path = url_limpia.lstrip('/')
+                                full_url = f"https://www.cincosas.com/2mp21d4s/{clean_path}"
+                        else:
+                            full_url = ''
+
+                        f_str = fecha.strftime('%Y-%m-%d') if fecha else ''
+                        f_edit_str = f_edit.strftime('%Y-%m-%d %H:%M') if f_edit else ''
+
+                        actas.append({
+                            'id': f"legacy_{acta_id}",
+                            'comprobante_id': acta_id,
+                            'origen': 'LEGACY_SST',
+                            'origen_label': 'Legacy SST',
+                            'fecha_entrega': f_str,
+                            'observaciones': 'Acta física escaneada registrada en el sistema Legacy',
+                            'archivo_url': full_url,
+                            'subido_por': str(editor).strip() if editor else 'Sistema Legacy',
+                            'created_at': f_edit_str,
+                            'es_eliminable': False,
+                        })
+            except Exception as e:
+                logger.warning(f"Error al consultar actas históricas en sst_base_entrega_dotacion: {e}")
+
+        # Ordenar todas las actas unificadas por fecha_entrega desc
+        actas.sort(key=lambda x: x.get('fecha_entrega') or '', reverse=True)
+
+        # 3. Despachos físicos de prendas y EPP desde bodega de Logística
+        despachos = []
+        if doc_limpio:
+            try:
+                conn_azul = connections['azul']
+                with conn_azul.cursor() as c_log:
+                    c_log.execute(
+                        """
+                        SELECT 
+                            e.id, 
+                            e.fecha, 
+                            e.ticket, 
+                            e.codigo, 
+                            COALESCE(bc.descripcion, e.codigo) AS descripcion,
+                            COALESCE(bc.talla, '') AS talla,
+                            e.cantidad, 
+                            e.sede, 
+                            e.observaciones
+                        FROM l4g3st3c1_c4ntr4l_3nv2nt1r34.control_inventario_movimientos_entrega AS e
+                        LEFT JOIN l4g3st3c1_c4ntr4l_3nv2nt1r34.control_inventario_base_codigos AS bc ON e.codigo = bc.codigo
+                        WHERE e.cedula = %s 
+                          AND (e.categoria IN ('DOTACION', 'SST') OR e.sub_categoria IN ('DOTACION', 'EPP', 'EPCC'))
+                        ORDER BY e.fecha DESC
+                        """,
+                        [doc_limpio]
+                    )
+                    rows_despachos = c_log.fetchall()
+                    for rd in rows_despachos:
+                        did, dfecha, dticket, dcodigo, ddesc, dtalla, dcant, dsede, dobs = rd
+                        f_desp = dfecha.strftime('%Y-%m-%d %H:%M') if dfecha else ''
+                        despachos.append({
+                            'id': did,
+                            'fecha': f_desp,
+                            'ticket': str(dticket or '').strip(),
+                            'codigo': str(dcodigo or '').strip(),
+                            'descripcion': str(ddesc or '').strip(),
+                            'talla': str(dtalla or '').strip(),
+                            'cantidad': int(dcant) if dcant is not None else 1,
+                            'sede': str(dsede or '').strip(),
+                            'observaciones': str(dobs or '').strip(),
+                        })
+            except Exception as e:
+                logger.warning(f"Error al consultar despachos en control_inventario_movimientos_entrega: {e}")
+
+        return {
+            'success': True,
+            'actas_comprobantes': actas,
+            'despachos_bodega': despachos,
+            'cnt_actas': len(actas),
+            'cnt_despachos': len(despachos),
         }
 

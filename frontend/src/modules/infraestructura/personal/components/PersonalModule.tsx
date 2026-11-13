@@ -8,7 +8,7 @@ import { usePersonalStore } from "../store/usePersonalStore";
 import { PersonalStats } from "./PersonalStats";
 import { PersonalFiltersBar } from "./PersonalFiltersBar";
 import { PersonalTable } from "./PersonalTable";
-import { PersonalDetailModal } from "./PersonalDetailModal";
+import { PersonalDetailModal, PersonalDetailTabKey } from "./PersonalDetailModal";
 import { ModalCrearEmpleado } from "./ModalCrearEmpleado";
 import { ModalAlertasPeriodoPrueba } from "./ModalAlertasPeriodoPrueba";
 import { ModalAlertasPracticas } from "./ModalAlertasPracticas";
@@ -36,6 +36,7 @@ export const PersonalModule: React.FC = () => {
   const [isAlertasOpen, setIsAlertasOpen] = useState(false);
   const [isPracticasOpen, setIsPracticasOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [detailInitialTab, setDetailInitialTab] = useState<PersonalDetailTabKey>("laboral");
   const [isCrearOpen, setIsCrearOpen] = useState(false);
 
   useEffect(() => {
@@ -43,13 +44,15 @@ export const PersonalModule: React.FC = () => {
     fetchEstadisticas();
   }, [fetchEmpleados, fetchEstadisticas]);
 
-  const handleSelectEmpleado = async (id: number) => {
+  const handleSelectEmpleado = async (id: number, initialTab: PersonalDetailTabKey = "laboral") => {
+    setDetailInitialTab(initialTab);
     await fetchEmpleadoDetail(id);
     setIsDetailOpen(true);
   };
 
   const handleCloseDetail = () => {
     setIsDetailOpen(false);
+    setDetailInitialTab("laboral");
     clearSelected();
   };
 
@@ -157,6 +160,7 @@ export const PersonalModule: React.FC = () => {
         <PersonalDetailModal
           empleado={selectedEmpleado}
           isOpen={isDetailOpen}
+          initialTab={detailInitialTab}
           onClose={handleCloseDetail}
           onRefresh={() => {
             if (selectedEmpleado) {

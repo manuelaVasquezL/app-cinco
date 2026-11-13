@@ -354,6 +354,13 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
     practica_productiva_fin = serializers.DateField(source='laboral.practica_productiva_fin', read_only=True)
     placa_vehiculo = serializers.CharField(source='movilidad.placa_vehiculo', read_only=True)
     estado_alturas = serializers.CharField(source='certificaciones_sst.estado_alturas', read_only=True)
+    cnt_dotacion = serializers.SerializerMethodField()
+
+    def get_cnt_dotacion(self, obj):
+        cnt_map = self.context.get('cnt_dotacion_map')
+        if cnt_map is not None:
+            return cnt_map.get(obj.id, 0)
+        return obj.comprobantes_dotacion.count() if hasattr(obj, 'comprobantes_dotacion') else 0
 
     class Meta:
         model = EmpleadoPerfil
@@ -386,6 +393,7 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
             'dias_en_empresa',
             'placa_vehiculo',
             'estado_alturas',
+            'cnt_dotacion',
             'created_at',
         ]
 
@@ -436,12 +444,44 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
     documentos_adjuntos = EmpleadoDocumentoAdjuntoSerializer(many=True, read_only=True)
     comprobantes_dotacion = EmpleadoDotacionComprobanteSerializer(many=True, read_only=True)
     puede_ver_documento_identidad = serializers.SerializerMethodField()
+    cnt_dotacion = serializers.SerializerMethodField()
+
+    def get_cnt_dotacion(self, obj):
+        local_cnt = obj.comprobantes_dotacion.count() if hasattr(obj, 'comprobantes_dotacion') else 0
+        doc = str(obj.numero_documento).strip() if obj.numero_documento else ''
+        leg_cnt = 0
+        if doc:
+            try:
+                from django.db import connections
+                with connections['azul'].cursor() as c_azul:
+                    c_azul.execute("SELECT COUNT(*) FROM sst_base_entrega_dotacion WHERE cedula = %s", [doc])
+                    row = c_azul.fetchone()
+                    if row:
+                        leg_cnt = row[0]
+            except Exception:
+                pass
+        return local_cnt + leg_cnt
 
     def get_puede_ver_documento_identidad(self, obj):
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         from apps.empleados.permissions import PuedeVerDocumentoIdentidad
         return PuedeVerDocumentoIdentidad.tiene_acceso(user, obj)
+
+    def validate_numero_documento(self, value):
+        """
+        Regla de Integridad de Documento:
+        El número de documento es inmutable una vez creado el colaborador
+        para preservar la integridad histórica, de nómina, logística y transporte.
+        """
+        if self.instance and value:
+            doc_actual = str(self.instance.numero_documento).strip()
+            doc_nuevo = str(value).strip()
+            if doc_nuevo != doc_actual:
+                raise serializers.ValidationError(
+                    "El número de documento no puede ser modificado una vez creado el colaborador."
+                )
+        return value
 
     class Meta:
         model = EmpleadoPerfil
@@ -474,6 +514,7 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
             'personas_a_cargo',
             'documentos_adjuntos',
             'comprobantes_dotacion',
+            'cnt_dotacion',
             'created_at',
             'updated_at',
         ]
@@ -487,6 +528,8 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
             sst_data = validated_data.pop('certificaciones_sst', None)
             dot_data = validated_data.pop('dotacion_activos', None)
             mov_data = validated_data.pop('movilidad', None)
+            # Garantizar inmutabilidad del número de documento
+            validated_data.pop('numero_documento', None)
 
             perfil_antes = {k: getattr(instance, k) for k in validated_data.keys() if hasattr(instance, k)}
             for attr, val in validated_data.items():
@@ -719,6 +762,18 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
                             datos_nuevos=diff_nuevos,
                             ip_origen=ip
                         )
+
+                # Sincronización cruzada con la base de datos Legacy 'azul' (Punto 2.3)
+                if 'placa_vehiculo' in mov_data:
+                    from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+                    EmpleadoWorkflowService.sincronizar_placa_legacy_transporte(
+                        empleado_perfil=instance,
+                        nueva_placa=mov_data.get('placa_vehiculo'),
+                        conduce=mov_data.get('sabe_conducir', False),
+                        medio_transporte=mov_data.get('medio_transporte', 'NINGUNO'),
+                        placa_anterior=mov_antes.get('placa_vehiculo'),
+                        user_operator=user
+                    )
 
             return instance
 

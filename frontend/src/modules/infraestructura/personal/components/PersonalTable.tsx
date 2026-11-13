@@ -12,16 +12,18 @@ import { ModalEntregaGH } from "./ModalEntregaGH";
 import { ModalAsignarPlaca } from "./ModalAsignarPlaca";
 import { ModalDesactivar } from "./ModalDesactivar";
 import { ModalReactivar } from "./ModalReactivar";
+import { ModalDotacion } from "./ModalDotacion";
 import {
   getPersonalColumns,
   personalCsvColumns,
   PERSONAL_TABLE_CONFIG,
 } from "./personalTable.utils";
+import { PersonalDetailTabKey } from "./PersonalDetailModal";
 
 interface Props {
   items: EmpleadoPerfilItem[];
   isLoading: boolean;
-  onSelectEmpleado: (id: number) => void;
+  onSelectEmpleado: (id: number, initialTab?: PersonalDetailTabKey) => void;
   toolbarActions?: React.ReactNode;
 }
 
@@ -34,7 +36,7 @@ export const PersonalTable: React.FC<Props> = ({
   const [targetEmpleado, setTargetEmpleado] =
     useState<EmpleadoPerfilItem | null>(null);
   const [modalAction, setModalAction] = useState<
-    "entrega" | "placa" | "desactivar" | "reactivar" | null
+    "entrega" | "placa" | "desactivar" | "reactivar" | "dotacion" | null
   >(null);
 
   const [globalFilter, setGlobalFilter] = useState("");
@@ -54,7 +56,7 @@ export const PersonalTable: React.FC<Props> = ({
 
   const openAction = (
     emp: EmpleadoPerfilItem,
-    action: "entrega" | "placa" | "desactivar" | "reactivar"
+    action: "entrega" | "placa" | "desactivar" | "reactivar" | "dotacion"
   ) => {
     setTargetEmpleado(emp);
     setModalAction(action);
@@ -159,6 +161,13 @@ export const PersonalTable: React.FC<Props> = ({
         <ModalReactivar
           empleado={targetEmpleado}
           isOpen={modalAction === "reactivar"}
+          onClose={closeAction}
+        />
+      )}
+      {modalAction === "dotacion" && targetEmpleado && (
+        <ModalDotacion
+          empleado={targetEmpleado}
+          isOpen={modalAction === "dotacion"}
           onClose={closeAction}
         />
       )}

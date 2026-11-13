@@ -1,3 +1,5 @@
+import logging
+from django.db import connections
 from django.db.models import Q
 from django.core.exceptions import ValidationError
 from rest_framework import status, filters
@@ -31,6 +33,9 @@ from apps.empleados.serializers import (
 )
 from apps.empleados.services import EmpleadoWorkflowService
 from apps.empleados.mixins import ScopedEmpleadoQuerySetMixin
+
+
+logger = logging.getLogger(__name__)
 
 
 class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
@@ -155,6 +160,49 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
         if self.action == 'list':
             return EmpleadoPerfilListSerializer
         return EmpleadoPerfilDetailSerializer
+
+    def list(self, request, *args, **kwargs):
+        """
+        Listado optimizado de colaboradores con paginación, filtros avanzados y
+        conteo unificado de actas de dotación (Punto 2.11: App Cinco + Legacy SST).
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+        targets = page if page is not None else list(queryset)
+
+        cnt_map = {}
+        cedulas = [p.numero_documento for p in targets if p.numero_documento]
+        legacy_counts = {}
+        if cedulas:
+            try:
+                conn_azul = connections['azul']
+                with conn_azul.cursor() as c_azul:
+                    format_strings = ','.join(['%s'] * len(cedulas))
+                    c_azul.execute(
+                        f"SELECT cedula, COUNT(*) FROM sst_base_entrega_dotacion WHERE cedula IN ({format_strings}) GROUP BY cedula",
+                        cedulas
+                    )
+                    for r in c_azul.fetchall():
+                        legacy_counts[str(r[0]).strip()] = r[1]
+            except Exception as e:
+                logger.warning(f"Error consultando conteo de dotación legacy en lista de personal: {e}")
+
+        for p in targets:
+            doc = str(p.numero_documento).strip() if p.numero_documento else ''
+            local_cnt = len(p.comprobantes_dotacion.all()) if hasattr(p, 'comprobantes_dotacion') else 0
+            leg_cnt = legacy_counts.get(doc, 0)
+            cnt_map[p.id] = local_cnt + leg_cnt
+
+        context = self.get_serializer_context()
+        context['cnt_dotacion_map'] = cnt_map
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, context=context)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True, context=context)
+        return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         """
@@ -1018,6 +1066,21 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
 
         comprobante.delete()
         return Response({'detail': 'Comprobante de dotación eliminado exitosamente.'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='dotacion-integral')
+    def dotacion_integral(self, request, pk=None):
+        """
+        Consulta unificada del historial de dotación (Punto 2.11):
+        1. Comprobantes digitales locales de app-cinco.
+        2. Actas históricas firmadas de sst_base_entrega_dotacion (Legacy azul).
+        3. Despachos físicos de dotación y EPP desde bodega de Logística.
+        """
+        perfil = self.get_object()
+        datos = EmpleadoWorkflowService.consultar_historial_dotacion_integral(
+            empleado_id=perfil.id,
+            numero_documento=perfil.numero_documento
+        )
+        return Response(datos, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='restablecer-contrasena')
     def restablecer_contrasena(self, request, pk=None):

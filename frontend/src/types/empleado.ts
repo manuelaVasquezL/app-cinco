@@ -176,6 +176,39 @@ export interface EmpleadoDotacionComprobante {
   created_at?: string;
 }
 
+export interface DotacionActaItem {
+  id: string;
+  comprobante_id: number;
+  origen: "APP_CINCO" | "LEGACY_SST";
+  origen_label: string;
+  fecha_entrega: string;
+  observaciones: string;
+  archivo_url: string;
+  subido_por: string;
+  created_at: string;
+  es_eliminable: boolean;
+}
+
+export interface DotacionDespachoBodegaItem {
+  id: number;
+  fecha: string;
+  ticket: string;
+  codigo: string;
+  descripcion: string;
+  talla: string;
+  cantidad: number;
+  sede: string;
+  observaciones: string;
+}
+
+export interface HistorialDotacionIntegralResponse {
+  success: boolean;
+  actas_comprobantes: DotacionActaItem[];
+  despachos_bodega: DotacionDespachoBodegaItem[];
+  cnt_actas: number;
+  cnt_despachos: number;
+}
+
 export interface EmpleadoMovilidad {
   id?: number;
   empleado_id?: number;
@@ -315,6 +348,7 @@ export interface EmpleadoPerfilItem {
   practica_productiva_fin?: string | null;
   proximo_a_vencer_contrato: boolean;
   documentos_completos: boolean;
+  cnt_dotacion?: number;
 }
 
 export interface EmpleadoPerfilCompleto {
@@ -379,6 +413,7 @@ export interface EmpleadoPerfilCompleto {
   en_practicas?: boolean;
   proximo_a_vencer_contrato?: boolean;
   documentos_completos?: boolean;
+  cnt_dotacion?: number;
 }
 
 // ==========================================

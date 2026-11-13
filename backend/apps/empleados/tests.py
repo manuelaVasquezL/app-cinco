@@ -9,6 +9,7 @@ class BaseEmpleadoTestCase(TestCase):
     Limpia automáticamente cualquier usuario y perfil de prueba al finalizar cada test
     para garantizar que la base de datos no quede contaminada con registros efímeros.
     """
+    databases = {'default', 'azul'}
     def tearDown(self):
         try:
             from django.contrib.auth.models import User
@@ -2674,6 +2675,338 @@ class RestablecerContrasenaTests(BaseEmpleadoTestCase):
 
         self.assertEqual(resp.status_code, 403)
         self.assertIn('superadministrador', resp.data['error'].lower())
+
+
+class InmutabilidadNumeroDocumentoTests(BaseEmpleadoTestCase):
+    """
+    Pruebas unitarias para la inmutabilidad y protección del número de documento (Cédula).
+    """
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import User, Permission
+        from apps.empleados.models import EmpleadoPerfil
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+
+        self.u_colab = User.objects.create_user(username='1099887766', password='ColabPassword123!')
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.u_colab,
+            numero_documento='1099887766',
+            tipo_documento='CC',
+            nombres='CARLOS',
+            apellidos='GOMEZ',
+            estado='ACTIVO'
+        )
+
+    def test_modificar_numero_documento_falla_con_validation_error(self):
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+        from rest_framework.exceptions import ValidationError
+
+        serializer = EmpleadoPerfilDetailSerializer(
+            instance=self.perfil,
+            data={'numero_documento': '9999999999'},
+            partial=True
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('numero_documento', serializer.errors)
+        self.assertIn('no puede ser modificado', str(serializer.errors['numero_documento'][0]))
+
+    def test_actualizar_otros_campos_manteniendo_documento_exitoso(self):
+        from apps.empleados.serializers.empleado_perfil_serializer import EmpleadoPerfilDetailSerializer
+
+        serializer = EmpleadoPerfilDetailSerializer(
+            instance=self.perfil,
+            data={'numero_documento': '1099887766', 'nombres': 'CARLOS ALBERTO'},
+            partial=True
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        updated = serializer.save()
+        self.assertEqual(updated.nombres, 'CARLOS ALBERTO')
+        self.assertEqual(updated.numero_documento, '1099887766')
+
+
+class HistorialDotacionIntegralTests(TestCase):
+    databases = {'default', 'azul'}
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoDotacionComprobante
+        from datetime import date
+
+        self.user = User.objects.create_user(username='admin_dotacion', password='AdminPassword123!', is_staff=True)
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.user,
+            numero_documento='1088776655',
+            tipo_documento='CC',
+            nombres='MARIO',
+            apellidos='VALENCIA',
+            estado='ACTIVO'
+        )
+        self.comprobante = EmpleadoDotacionComprobante.objects.create(
+            empleado=self.perfil,
+            fecha_entrega=date(2026, 5, 10),
+            observaciones='Entrega dotacion semestral',
+            archivo_url='/media/infraestructura/dotacion/acta_test.pdf',
+            subido_por=self.user
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_endpoint_dotacion_integral_retorna_estructura_completa(self):
+        url = f"/empleados/perfiles/{self.perfil.id}/dotacion-integral/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data.get('success'))
+        self.assertIn('actas_comprobantes', data)
+        self.assertIn('despachos_bodega', data)
+        self.assertIn('cnt_actas', data)
+        self.assertIn('cnt_despachos', data)
+        self.assertGreaterEqual(data['cnt_actas'], 1)
+
+        # Verificar que el comprobante local tiene el origen APP_CINCO y es eliminable
+        acta_local = next((a for a in data['actas_comprobantes'] if a['comprobante_id'] == self.comprobante.id), None)
+        self.assertIsNotNone(acta_local)
+        self.assertEqual(acta_local['origen'], 'APP_CINCO')
+        self.assertTrue(acta_local['es_eliminable'])
+
+    def test_serializers_incluyen_campo_cnt_dotacion(self):
+        from apps.empleados.serializers import EmpleadoPerfilListSerializer, EmpleadoPerfilDetailSerializer
+
+        # Detail Serializer
+        detail_ser = EmpleadoPerfilDetailSerializer(self.perfil)
+        self.assertIn('cnt_dotacion', detail_ser.data)
+        self.assertGreaterEqual(detail_ser.data['cnt_dotacion'], 1)
+
+        # List Serializer
+        list_ser = EmpleadoPerfilListSerializer(self.perfil)
+        self.assertIn('cnt_dotacion', list_ser.data)
+        self.assertGreaterEqual(list_ser.data['cnt_dotacion'], 1)
+
+    def test_dotacion_integral_unifica_legacy_y_logistica_con_mocks(self):
+        from unittest.mock import patch, MagicMock
+        from datetime import datetime, date
+        from apps.empleados.services import EmpleadoWorkflowService
+
+        with patch('apps.empleados.services.empleado_workflow_service.connections') as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.side_effect = [
+                # 1. sst_base_entrega_dotacion
+                [(99, date(2024, 2, 16), 'solicitudes/dotacion/1088776655_acta.jpeg', '1088776655', datetime(2024, 2, 16, 9, 30))],
+                # 2. control_inventario_movimientos_entrega
+                [(501, datetime(2026, 10, 26, 11, 30), 'TICK123', 'BOT_SEG_42', 'BOTA DE SEGURIDAD 42', '42', 1, 'MEDELLIN', 'Entrega regular')]
+            ]
+            mock_cursor.__enter__.return_value = mock_cursor
+            mock_conn.__getitem__.return_value.cursor.return_value = mock_cursor
+
+            res = EmpleadoWorkflowService.consultar_historial_dotacion_integral(self.perfil.id, self.perfil.numero_documento)
+            self.assertTrue(res['success'])
+            self.assertEqual(res['cnt_actas'], 2)  # 1 local + 1 legacy
+            self.assertEqual(res['cnt_despachos'], 1)
+            self.assertEqual(res['despachos_bodega'][0]['codigo'], 'BOT_SEG_42')
+            self.assertEqual(res['despachos_bodega'][0]['descripcion'], 'BOTA DE SEGURIDAD 42')
+            self.assertEqual(res['despachos_bodega'][0]['talla'], '42')
+            self.assertEqual(res['despachos_bodega'][0]['cantidad'], 1)
+
+
+class SincronizacionCruzadaTransporteAzulTests(TestCase):
+    """
+    Pruebas para el Punto 2.3: Sincronización Cruzada con Módulo de Transporte
+    y Registros de Salida (transportadores_vehiculos y transporte_registro_salida en base azul).
+    """
+    databases = {'default', 'azul'}
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoMovilidad
+        import uuid
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:8]
+        self.user_op = User.objects.create_user(username=f'op_{uid}', email=f'op_{uid}@cinco.com', password='pwd')
+        self.user_emp = User.objects.create_user(username=f'emp_{uid}', email=f'emp_{uid}@cinco.com', password='pwd')
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.user_emp,
+            numero_documento=f'98{uid[:6]}',
+            tipo_documento='CC',
+            nombres='CARLOS',
+            apellidos='RESTREPO'
+        )
+        self.laboral = EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            fecha_ingreso=date.today(),
+            area='OPERACIONES',
+            carpeta='ANTIOQUIA',
+            cargo='TECNICO ENLACE'
+        )
+        self.movilidad = EmpleadoMovilidad.objects.create(
+            empleado=self.perfil,
+            sabe_conducir=True,
+            medio_transporte='CARRO'
+        )
+
+    def test_sincronizar_vehiculo_estandar_sin_pago_mensual(self):
+        """
+        Al asignar una placa a un colaborador, debe actualizar cinco_base_de_personal
+        y transportadores_vehiculos (cedual_conductor). Si no tiene pago mensual, no toca salidas.
+        """
+        from unittest.mock import patch, MagicMock
+        from apps.empleados.services import EmpleadoWorkflowService
+
+        with patch('apps.empleados.services.empleado_workflow_service.connections') as mock_conn:
+            mock_cursor = MagicMock()
+            # Pago mensual query returns None (no pago mensual)
+            mock_cursor.fetchone.return_value = None
+            mock_cursor.rowcount = 1
+            mock_cursor.__enter__.return_value = mock_cursor
+            mock_conn.__getitem__.return_value.cursor.return_value = mock_cursor
+
+            res = EmpleadoWorkflowService.sincronizar_placa_legacy_transporte(
+                empleado_perfil=self.perfil,
+                nueva_placa='XYZ789',
+                conduce=True,
+                medio_transporte='CARRO',
+                user_operator=self.user_op
+            )
+
+            self.assertTrue(res['placa_actualizada'])
+            self.assertTrue(res['vehiculo_actualizado'])
+            self.assertFalse(res['pago_mensual_aplica'])
+            self.assertEqual(res['salidas_actualizadas'], 0)
+            self.assertEqual(len(res['errores']), 0)
+
+            # Verificar que ejecutó el update de transportadores_vehiculos
+            executed_sqls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+            self.assertTrue(any('transportadores_vehiculos' in sql and 'cedual_conductor' in sql for sql in executed_sqls))
+            self.assertTrue(any('cinco_base_de_personal' in sql for sql in executed_sqls))
+
+    def test_sincronizar_vehiculo_con_pago_mensual_y_salidas_completas(self):
+        """
+        Si el vehículo tiene modalidad pago mensual para el mes actual y
+        coincide la cantidad de registros con los días del mes, actualiza transporte_registro_salida.
+        """
+        from unittest.mock import patch, MagicMock
+        from apps.empleados.services import EmpleadoWorkflowService
+        import calendar
+        from django.utils import timezone
+        from datetime import date
+
+        hoy = timezone.localdate() if timezone.is_aware(timezone.now()) else date.today()
+        _, ultimo_dia = calendar.monthrange(hoy.year, hoy.month)
+        dias_mes = ultimo_dia
+
+        with patch('apps.empleados.services.empleado_workflow_service.connections') as mock_conn:
+            mock_cursor = MagicMock()
+            # 1. fetchone para pago mensual: retorna registro encontrado
+            # 2. fetchone para COUNT(*) de registros de salida: retorna dias_mes
+            mock_cursor.fetchone.side_effect = [
+                (10, 'SNW972', 60000),  # Vehículo con pago mensual
+                (dias_mes,)              # Cantidad exacta de salidas generadas
+            ]
+            mock_cursor.rowcount = dias_mes
+            mock_cursor.__enter__.return_value = mock_cursor
+            mock_conn.__getitem__.return_value.cursor.return_value = mock_cursor
+
+            res = EmpleadoWorkflowService.sincronizar_placa_legacy_transporte(
+                empleado_perfil=self.perfil,
+                nueva_placa='SNW972',
+                conduce=True,
+                medio_transporte='CARRO',
+                user_operator=self.user_op
+            )
+
+            self.assertTrue(res['placa_actualizada'])
+            self.assertTrue(res['pago_mensual_aplica'])
+            self.assertEqual(res['salidas_actualizadas'], dias_mes)
+            self.assertEqual(len(res['errores']), 0)
+
+            # Verificar que ejecutó el UPDATE sobre transporte_registro_salida
+            executed_sqls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+            self.assertTrue(any('UPDATE transporte_registro_salida' in sql for sql in executed_sqls))
+
+    def test_liberar_placa_previa_al_reasignar(self):
+        """
+        Al cambiar de placa 'AAA111' a 'BBB222', debe liberar 'AAA111' y asignar 'BBB222'.
+        """
+        from unittest.mock import patch, MagicMock
+        from apps.empleados.services import EmpleadoWorkflowService
+
+        with patch('apps.empleados.services.empleado_workflow_service.connections') as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchone.return_value = None
+            mock_cursor.rowcount = 1
+            mock_cursor.__enter__.return_value = mock_cursor
+            mock_conn.__getitem__.return_value.cursor.return_value = mock_cursor
+
+            res = EmpleadoWorkflowService.sincronizar_placa_legacy_transporte(
+                empleado_perfil=self.perfil,
+                nueva_placa='BBB222',
+                placa_anterior='AAA111',
+                user_operator=self.user_op
+            )
+
+            self.assertTrue(res['placa_actualizada'])
+            executed_sqls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+            # Debe haber liberado la previa
+            self.assertTrue(any('cedual_conductor = \'\'' in sql for sql in executed_sqls))
+
+    def test_workflow_asignar_placa_vehiculo_integra_sincronizacion(self):
+        """
+        Verifica que EmpleadoWorkflowService.asignar_placa_vehiculo invoque
+        la sincronización cruzada y guarde la trazabilidad en EmpleadoMovilidad.
+        """
+        from unittest.mock import patch
+        from apps.empleados.services import EmpleadoWorkflowService
+
+        with patch.object(EmpleadoWorkflowService, 'sincronizar_placa_legacy_transporte') as mock_sync:
+            mock_sync.return_value = {
+                'placa_actualizada': True,
+                'vehiculo_actualizado': True,
+                'salidas_actualizadas': 0,
+                'pago_mensual_aplica': False,
+                'errores': []
+            }
+
+            mov = EmpleadoWorkflowService.asignar_placa_vehiculo(
+                empleado_id=self.perfil.id,
+                placa='KTM390',
+                conduce=True,
+                medio_transporte='MOTO',
+                user_operator=self.user_op
+            )
+
+            self.assertEqual(mov.placa_vehiculo, 'KTM390')
+            self.assertTrue(mov.sabe_conducir)
+            self.assertEqual(mov.medio_transporte, 'MOTO')
+
+            mock_sync.assert_called_once()
+            called_kwargs = mock_sync.call_args.kwargs
+            self.assertEqual(called_kwargs['nueva_placa'], 'KTM390')
+            self.assertEqual(called_kwargs['empleado_perfil'].id, self.perfil.id)
+
+    def test_resiliencia_si_falla_conexion_base_azul(self):
+        """
+        Si la conexión con la base azul falla, el error es capturado y no rompe
+        la operación local en App Cinco.
+        """
+        from unittest.mock import patch
+        from apps.empleados.services import EmpleadoWorkflowService
+
+        with patch('apps.empleados.services.empleado_workflow_service.connections') as mock_conn:
+            mock_conn.__getitem__.side_effect = Exception("Conexión rechazada a bd_c3nc4s1s")
+
+            res = EmpleadoWorkflowService.sincronizar_placa_legacy_transporte(
+                empleado_perfil=self.perfil,
+                nueva_placa='ERR404',
+                user_operator=self.user_op
+            )
+
+            self.assertFalse(res['placa_actualizada'])
+            self.assertEqual(len(res['errores']), 1)
+            self.assertIn("Conexión rechazada", res['errores'][0])
+
+
 
 
 

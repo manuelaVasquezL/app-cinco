@@ -443,9 +443,6 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [medioTransporte, setMedioTransporte] = useState<string>(
     empleado.movilidad?.medio_transporte || ""
   );
-  const [modeloVehiculo, setModeloVehiculo] = useState<string>(
-    empleado.movilidad?.modelo_vehiculo || ""
-  );
   const [placaVehiculo, setPlacaVehiculo] = useState<string>(
     empleado.movilidad?.placa_vehiculo || empleado.placa_vehiculo || ""
   );
@@ -613,7 +610,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
         movilidad: {
           sabe_conducir: sabeConducir,
           medio_transporte: medioTransporte || null,
-          modelo_vehiculo: modeloVehiculo.trim() || null,
+          modelo_vehiculo: empleado.movilidad?.modelo_vehiculo || null,
           placa_vehiculo: placaVehiculo.trim().toUpperCase() || null,
         },
       };
@@ -1223,10 +1220,9 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                     <input
                       type="text"
                       value={numeroDoc}
-                      onChange={(e) => setNumeroDoc(e.target.value.trim())}
-                      placeholder="Sin puntos ni comas"
-                      required
-                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs font-mono text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      readOnly
+                      disabled
+                      className="h-8 w-full rounded-lg border border-gray-200 bg-gray-100/80 px-2.5 text-xs font-mono text-gray-500 cursor-not-allowed select-none dark:border-gray-800 dark:bg-gray-800/60 dark:text-gray-400"
                     />
                   </div>
 
@@ -2467,7 +2463,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                   <div className="flex items-center gap-2">
                     <Car className="h-4 w-4 text-brand-600 dark:text-brand-400" />
                     <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                      Transporte y Vehículo Asignado (Tabla 7: empleados_movilidad)
+                      Transporte y Vehículo Asignado
                     </h4>
                   </div>
                 </div>
@@ -2525,20 +2521,6 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                       onChange={(e) => setPlacaVehiculo(e.target.value.toUpperCase())}
                       placeholder="Ej: ABC123"
                       className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs uppercase tracking-wider text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    />
-                  </div>
-
-                  {/* Modelo del Vehículo */}
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Marca, Línea y Modelo del Vehículo
-                    </label>
-                    <input
-                      type="text"
-                      value={modeloVehiculo}
-                      onChange={(e) => setModeloVehiculo(e.target.value)}
-                      placeholder="Ej: Yamaha XTZ 150 mod 2022 / Renault Duster 4x4"
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     />
                   </div>
                 </div>

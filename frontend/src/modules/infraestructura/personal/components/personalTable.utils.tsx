@@ -8,6 +8,7 @@ import {
   UserMinus,
   UserCheck,
   Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { EmpleadoPerfilItem } from "@/types/empleado";
 import { CsvColumn } from "@/utils/csv";
@@ -51,6 +52,7 @@ export const personalCsvColumns: CsvColumn<EmpleadoPerfilItem>[] = [
   },
   { header: "Móvil", accessor: (row) => row.movil || "" },
   { header: "Placa", accessor: (row) => row.placa_vehiculo || "" },
+  { header: "Actas Dotación", accessor: (row) => row.cnt_dotacion ?? 0 },
   { header: "Días en Empresa", accessor: (row) => row.dias_en_empresa },
   { header: "Fecha Ingreso", accessor: (row) => row.fecha_ingreso || "" },
 ];
@@ -63,10 +65,13 @@ export const PERSONAL_TABLE_CONFIG = {
 } as const;
 
 interface ColumnProps {
-  onSelectEmpleado: (id: number) => void;
+  onSelectEmpleado: (
+    id: number,
+    initialTab?: "laboral" | "datos" | "sst" | "movilidad" | "cuentas" | "auditoria"
+  ) => void;
   openAction: (
     emp: EmpleadoPerfilItem,
-    action: "entrega" | "placa" | "desactivar" | "reactivar"
+    action: "entrega" | "placa" | "desactivar" | "reactivar" | "dotacion"
   ) => void;
 }
 
@@ -110,6 +115,26 @@ export const getPersonalColumns = ({
           >
             <Car className="h-4 w-4" />
           </button>
+
+          <div className="relative">
+            <button
+              onClick={() => openAction(emp, "dotacion")}
+              title="Gestión de Dotación"
+              className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/15"
+            >
+              <ShieldCheck className="h-4 w-4" />
+            </button>
+            {emp.cnt_dotacion !== undefined &&
+              emp.cnt_dotacion !== null &&
+              emp.cnt_dotacion > 0 && (
+                <span
+                  title={`${emp.cnt_dotacion} acta(s) física(s) de dotación registrada(s)`}
+                  className="pointer-events-none absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-extrabold text-white shadow-xs"
+                >
+                  {emp.cnt_dotacion}
+                </span>
+              )}
+          </div>
 
           {emp.estado === "ACTIVO" || emp.estado === "EN_FORMACION" ? (
             <button

@@ -12,6 +12,7 @@ import {
   EmpleadoAuditoriaLog,
   EmpleadoDocumentoAdjunto,
   EmpleadoDotacionComprobante,
+  HistorialDotacionIntegralResponse,
   PersonalFilterParams,
   PersonalEstadisticas,
   EmpleadoPersonaACargo,
@@ -391,6 +392,19 @@ export const personalService = {
   ): Promise<{ detail: string }> {
     const response = await api.delete<{ detail: string }>(
       `/empleados/perfiles/${empleadoId}/comprobantes-dotacion/${comprobanteId}/`
+    );
+    return response.data;
+  },
+
+  /**
+   * Obtiene el historial integral de dotación y logística (Punto 2.11):
+   * Actas físicas firmadas (App Cinco + Legacy SST) y despachos de bodega/EPP (Logística).
+   */
+  async getDotacionIntegral(
+    empleadoId: number
+  ): Promise<HistorialDotacionIntegralResponse> {
+    const response = await api.get<HistorialDotacionIntegralResponse>(
+      `/empleados/perfiles/${empleadoId}/dotacion-integral/`
     );
     return response.data;
   },
