@@ -456,4 +456,38 @@ export const personalService = {
     });
     return response.data;
   },
+
+  /**
+   * Dispara el envío de alertas por correo institucional para colaboradores en período de prueba crítico (<= 15 días).
+   */
+  async enviarAlertasPeriodoPrueba(empleadosIds?: number[], forzar?: boolean): Promise<{
+    success: boolean;
+    total_notificados: number;
+    notificacion_id?: number | null;
+    idempotente?: boolean;
+    msg: string;
+  }> {
+    const response = await api.post('/empleados/perfiles/enviar-alertas-periodo-prueba/', {
+      empleados_ids: empleadosIds,
+      forzar,
+    });
+    return response.data;
+  },
+
+  /**
+   * Dispara el envío de alertas por correo institucional para aprendices SENA con etapa por culminar (<= 15 días).
+   */
+  async enviarAlertasPracticas(aprendicesIds?: number[], forzar?: boolean): Promise<{
+    success: boolean;
+    total_notificados: number;
+    notificacion_id?: number | null;
+    idempotente?: boolean;
+    msg: string;
+  }> {
+    const response = await api.post('/empleados/perfiles/enviar-alertas-practicas/', {
+      aprendices_ids: aprendicesIds,
+      forzar,
+    });
+    return response.data;
+  },
 };

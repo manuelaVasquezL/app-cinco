@@ -245,6 +245,37 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
             'carpeta': laboral.carpeta,
         })
 
+    @action(detail=True, methods=['post'], url_path='solicitar-traslado')
+    def solicitar_traslado(self, request, pk=None):
+        """
+        Emite una solicitud de cambio de área y carpeta (Punto 2.2 - Legacy Líneas 678-815).
+        Encola la notificación por correo institucional hacia Gestión Humana y Programación.
+        """
+        area_nueva = request.data.get('area', '').strip()
+        carpeta_nueva = request.data.get('carpeta', '').strip()
+        motivo = request.data.get('motivo', '').strip()
+
+        if not area_nueva or not carpeta_nueva:
+            return Response(
+                {'error': 'Debe especificar el área y carpeta de destino.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        perfil = self.get_object()
+        notif = EmpleadoWorkflowService.solicitar_cambio_area(
+            empleado_id=perfil.id,
+            solicitante_usuario=request.user,
+            nueva_area=area_nueva,
+            nueva_carpeta=carpeta_nueva,
+            motivo=motivo,
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        return Response({
+            'success': True,
+            'msg': 'La solicitud fue recibida por Gestión Humana y será atendida lo más pronto posible.',
+            'notificacion_id': notif.id if notif else None,
+        })
+
     @action(detail=True, methods=['post'], url_path='asignar-placa')
     def asignar_placa(self, request, pk=None):
         """
@@ -771,6 +802,88 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
             'en_practicas': total_practicas,
             'practicas_criticas': total_practicas_criticas,
         })
+
+    @action(detail=False, methods=['post'], url_path='enviar-alertas-periodo-prueba')
+    def enviar_alertas_periodo_prueba(self, request):
+        """
+        Despacha / encola la notificación por correo institucional para colaboradores
+        con período de prueba crítico (<= 15 días restantes).
+        """
+        from apps.common.services.notificacion_correo_service import NotificacionCorreoService
+
+        empleados_ids = request.data.get('empleados_ids')
+        forzar = bool(request.data.get('forzar', False))
+
+        notif, total, creado = NotificacionCorreoService.encolar_alerta_periodo_prueba(
+            empleados_criticos_ids=empleados_ids,
+            usuario_operador=request.user,
+            forzar=forzar
+        )
+
+        if total == 0:
+            return Response({
+                'success': True,
+                'total_notificados': 0,
+                'msg': 'No hay colaboradores en período de prueba crítico (<= 15 días) para notificar.'
+            }, status=status.HTTP_200_OK)
+
+        if not creado:
+            return Response({
+                'success': True,
+                'total_notificados': total,
+                'notificacion_id': notif.id if notif else None,
+                'idempotente': True,
+                'msg': f'La alerta diaria de período de prueba para {total} colaborador(es) ya había sido encolada previamente hoy.'
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            'success': True,
+            'total_notificados': total,
+            'notificacion_id': notif.id if notif else None,
+            'idempotente': False,
+            'msg': f'Se encoló exitosamente la alerta por correo para {total} colaborador(es) en período de prueba.'
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='enviar-alertas-practicas')
+    def enviar_alertas_practicas(self, request):
+        """
+        Despacha / encola la notificación por correo institucional para aprendices SENA
+        con etapa lectiva o productiva próxima a culminar (<= 15 días restantes o vencida).
+        """
+        from apps.common.services.notificacion_correo_service import NotificacionCorreoService
+
+        aprendices_ids = request.data.get('aprendices_ids')
+        forzar = bool(request.data.get('forzar', False))
+
+        notif, total, creado = NotificacionCorreoService.encolar_alerta_practicas(
+            aprendices_criticos_ids=aprendices_ids,
+            usuario_operador=request.user,
+            forzar=forzar
+        )
+
+        if total == 0:
+            return Response({
+                'success': True,
+                'total_notificados': 0,
+                'msg': 'No hay aprendices SENA con etapa formativa próxima a vencer (<= 15 días) para notificar.'
+            }, status=status.HTTP_200_OK)
+
+        if not creado:
+            return Response({
+                'success': True,
+                'total_notificados': total,
+                'notificacion_id': notif.id if notif else None,
+                'idempotente': True,
+                'msg': f'La alerta diaria de aprendices SENA para {total} aprendiz(ces) ya había sido encolada previamente hoy.'
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            'success': True,
+            'total_notificados': total,
+            'notificacion_id': notif.id if notif else None,
+            'idempotente': False,
+            'msg': f'Se encoló exitosamente la alerta por correo para {total} aprendiz(ces) SENA.'
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='supervisores')
     def lista_supervisores(self, request):

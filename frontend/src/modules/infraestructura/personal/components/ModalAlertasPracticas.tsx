@@ -14,7 +14,10 @@ import {
   BookOpen,
   Briefcase,
   AlertTriangle,
+  Mail,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { EmpleadoPerfilItem } from "@/types/empleado";
 import { resolveFotoUrl, getInitials } from "./personalTable.utils";
 import { personalService } from "../services/personalService";
@@ -42,6 +45,7 @@ export const ModalAlertasPracticas: React.FC<Props> = ({
   const [search, setSearch] = useState("");
   const [remotosPracticas, setRemotosPracticas] = useState<EmpleadoPerfilItem[]>([]);
   const [isLoadingRemoto, setIsLoadingRemoto] = useState(false);
+  const [isEnviandoAlertas, setIsEnviandoAlertas] = useState(false);
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -412,18 +416,74 @@ export const ModalAlertasPracticas: React.FC<Props> = ({
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 flex items-center justify-between p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Mostrando <strong>{colaboradoresFiltrados.length}</strong> de{" "}
             <strong>{colaboradoresPracticas.length}</strong> aprendiz{colaboradoresPracticas.length === 1 ? "" : "es"}
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-gray-200 px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-          >
-            Cerrar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (criticos.length === 0) {
+                  toast.info("No hay aprendices SENA en estado crítico (<= 15 días) para alertar.");
+                  return;
+                }
+
+                const confirmar = window.confirm(
+                  `¿Deseas enviar las alertas por correo electrónico para los ${criticos.length} aprendiz(ces) SENA con etapa formativa próxima a vencer (<= 15 días)?\n\nSe notificará institucionalmente a Gestión Humana, Programación y a sus supervisores directos.`
+                );
+                if (!confirmar) return;
+
+                try {
+                  setIsEnviandoAlertas(true);
+                  const ids = criticos.map((a) => a.id);
+                  const res = await personalService.enviarAlertasPracticas(ids);
+                  if (res.idempotente) {
+                    toast.info(res.msg);
+                  } else {
+                    toast.success(res.msg);
+                  }
+                } catch (err: any) {
+                  toast.error(
+                    err?.response?.data?.error || err?.response?.data?.msg || err?.message || "Error al enviar alertas por correo."
+                  );
+                } finally {
+                  setIsEnviandoAlertas(false);
+                }
+              }}
+              disabled={isEnviandoAlertas || criticos.length === 0}
+              title={
+                criticos.length === 0
+                  ? "No hay aprendices críticos (<= 15 días) para notificar"
+                  : `Enviar alertas por correo para ${criticos.length} aprendiz(ces) críticos`
+              }
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors ${
+                criticos.length === 0 || isEnviandoAlertas
+                  ? "bg-purple-300 dark:bg-purple-900/40 text-purple-100 dark:text-purple-400 cursor-not-allowed"
+                  : "bg-purple-600 hover:bg-purple-500 dark:bg-purple-600 dark:hover:bg-purple-500 cursor-pointer"
+              }`}
+            >
+              {isEnviandoAlertas ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4" />
+              )}
+              <span>{isEnviandoAlertas ? "Enviando..." : "Enviar alertas por correo"}</span>
+              {criticos.length > 0 && !isEnviandoAlertas && (
+                <span className="ml-1 rounded-full bg-purple-700/60 px-1.5 py-0.2 text-[10px] font-bold">
+                  {criticos.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-gray-200 px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       </div>
     </div>

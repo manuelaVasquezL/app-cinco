@@ -374,3 +374,88 @@ SHAREPOINT_CLIENT_ID = os.environ.get('SHAREPOINT_CLIENT_ID', '')
 SHAREPOINT_CLIENT_SECRET = os.environ.get('SHAREPOINT_CLIENT_SECRET', '')
 SHAREPOINT_SITE_URL = os.environ.get('SHAREPOINT_SITE_URL', '')
 
+# ==============================================================================
+# CONFIGURACIÓN DE CORREO ELECTRÓNICO Y NOTIFICACIONES INSTITUCIONALES (OUTBOX)
+# ==============================================================================
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'correo.cincosas.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True').strip().lower() in ('true', '1', 'yes')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False').strip().lower() in ('true', '1', 'yes')
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'CINCO S.A.S. <notificaciones@cincosas.com>')
+
+# Si DEBUG=True y no hay usuario configurado, consola por defecto para evitar caídas en local
+_default_backend = (
+    'django.core.mail.backends.smtp.EmailBackend'
+    if (not DEBUG or EMAIL_HOST_USER)
+    else 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_BACKEND = os.environ.get('DJANGO_EMAIL_BACKEND', _default_backend)
+
+# Sandbox / Redirección de Pruebas (opcional: si se define en .env con DEBUG=True, todos los envíos van allí)
+EMAIL_DEV_OVERRIDE = os.environ.get('EMAIL_DEV_OVERRIDE', '').strip()
+
+# Listas de Distribución Institucionales (Puntos 2.2 y 6)
+def _parse_email_list(env_var_name, default_list):
+    val = os.environ.get(env_var_name, '').strip()
+    if val:
+        return [email.strip() for email in val.split(',') if email.strip()]
+    return default_list
+
+NOTIFICACION_EGRESO_TO = _parse_email_list(
+    'NOTIFICACION_EGRESO_TO',
+    [
+        'aux.programacion@cincosas.com',
+        'alvaro.sanchez@cincosas.com',
+        'aux.juridica@cincosas.com',
+        'juridica@cincosas.com',
+        'diana.zuluaga@cincosas.com',
+        'lidersst@cincosas.com',
+        'sistemas@cincosas.com',
+        'jhon.acosta@cincosas.com',
+        'cesar.ortiz@cincosas.com',
+        'gestion.gh@cincosas.com',
+    ]
+)
+
+NOTIFICACION_REACTIVACION_TO = _parse_email_list(
+    'NOTIFICACION_REACTIVACION_TO',
+    [
+        'aux.programacion@cincosas.com',
+        'alvaro.sanchez@cincosas.com',
+        'aux.juridica@cincosas.com',
+        'juridica@cincosas.com',
+        'diana.zuluaga@cincosas.com',
+        'gestion.gh@cincosas.com',
+    ]
+)
+
+NOTIFICACION_TRASLADO_TO = _parse_email_list(
+    'NOTIFICACION_TRASLADO_TO',
+    [
+        'aux.programacion@cincosas.com',
+        'diana.zuluaga@cincosas.com',
+    ]
+)
+
+NOTIFICACION_PERIODOS_PRUEBA_TO = _parse_email_list(
+    'NOTIFICACION_PERIODOS_PRUEBA_TO',
+    [
+        'gestion.gh@cincosas.com',
+        'aux.programacion@cincosas.com',
+        'diana.zuluaga@cincosas.com',
+    ]
+)
+
+NOTIFICACION_PRACTICAS_SENA_TO = _parse_email_list(
+    'NOTIFICACION_PRACTICAS_SENA_TO',
+    [
+        'gestion.gh@cincosas.com',
+        'aux.programacion@cincosas.com',
+        'diana.zuluaga@cincosas.com',
+    ]
+)
+
+

@@ -1,0 +1,106 @@
+{% extends "emails/base_email.html" %}
+
+{% block title %}Alerta de Aprendices SENA: Vencimiento de Etapa - CINCO S.A.S.{% endblock %}
+
+{% block badge_text %}APRENDICES SENA{% endblock %}
+
+{% block header_title %}
+    Alerta: Vencimiento de Etapa Formativa SENA
+{% endblock %}
+
+{% block header_subtitle %}
+    Se identificaron {{ total_aprendices }} aprendiz{{ total_aprendices|pluralize:"es" }} con etapa lectiva o productiva próxima a culminar (15 días o menos).
+{% endblock %}
+
+{% block content %}
+    <!-- Alerta Informativa de Gestión SENA -->
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f5f3ff; border-left: 4px solid #7c3aed; border-radius: 6px; margin: 0 0 20px 0;">
+        <tr>
+            <td style="padding: 14px 16px;">
+                <p style="margin: 0; font-size: 13px; font-weight: 600; color: #5b21b6; line-height: 1.5;">
+                    Control oportuno de contratos de aprendizaje: asegure la transición de etapa lectiva a productiva (adendas y ARL) o la gestión de paz y salvo y bitácoras para finalización ante el SENA.
+                </p>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Tabla de Aprendices -->
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; border-collapse: separate; overflow: hidden; margin: 0 0 20px 0;">
+        <thead>
+            <tr style="background-color: #f8fafc;">
+                <th align="left" style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; border-bottom: 1px solid #e2e8f0;">Aprendiz</th>
+                <th align="center" style="padding: 10px 10px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; border-bottom: 1px solid #e2e8f0;">Etapa</th>
+                <th align="center" style="padding: 10px 8px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; border-bottom: 1px solid #e2e8f0;">Fin Etapa</th>
+                <th align="center" style="padding: 10px 10px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; border-bottom: 1px solid #e2e8f0;">Días</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in aprendices %}
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 10px 12px; font-size: 12px; color: #1e293b; border-bottom: 1px solid #f1f5f9; vertical-align: top;">
+                    <strong>{{ a.nombre_completo }}</strong><br />
+                    <span style="font-size: 11px; color: #64748b;">CC: {{ a.documento_ofuscado }}</span><br />
+                    <span style="font-size: 11px; color: #334155;">{{ a.cargo|default:"Aprendiz SENA" }}</span>
+                    {% if a.supervisor_nombre %}
+                    <br /><span style="font-size: 10px; color: #475569;">Líder: <em>{{ a.supervisor_nombre }}</em></span>
+                    {% endif %}
+                </td>
+                <td align="center" style="padding: 10px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle;">
+                    {% if a.es_lectiva %}
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd;">
+                        Lectiva
+                    </span>
+                    {% else %}
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe;">
+                        Productiva
+                    </span>
+                    {% endif %}
+                </td>
+                <td align="center" style="padding: 10px 8px; font-size: 11px; color: #334155; border-bottom: 1px solid #f1f5f9; vertical-align: middle;">
+                    {{ a.fecha_fin }}
+                </td>
+                <td align="center" style="padding: 10px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle;">
+                    {% if a.dias_restantes <= 7 %}
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;">
+                        {% if a.dias_restantes <= 0 %}Vencida{% else %}{{ a.dias_restantes }} d{% endif %}
+                    </span>
+                    {% elif a.dias_restantes <= 15 %}
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: #fef3c7; color: #b45309; border: 1px solid #fcd34d;">
+                        {{ a.dias_restantes }} d
+                    </span>
+                    {% else %}
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;">
+                        {{ a.dias_restantes }} d
+                    </span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Indicaciones de Trámite -->
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin: 0 0 20px 0;">
+        <tr>
+            <td style="padding: 14px 18px;">
+                <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
+                    Protocolo de gestión:
+                </p>
+                <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #475569; line-height: 1.6;">
+                    <li><strong>Para Etapa Lectiva:</strong> Generar adenda de paso a productiva, afiliar a ARL en nivel de riesgo operativo y coordinar entrega de herramientas y dotación.</li>
+                    <li><strong>Para Etapa Productiva:</strong> Validar bitácoras de seguimiento firmadas (F-147), gestionar paz y salvo administrativo y definir si se vincula como técnico de planta.</li>
+                </ul>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Metadatos de Auditoría -->
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+        <tr>
+            <td align="right" style="font-size: 11px; color: #94a3b8;">
+                Generado por: <strong>{{ usuario_operador|default:"Sistema" }}</strong> • {{ fecha_generacion }}
+            </td>
+        </tr>
+    </table>
+{% endblock %}
+

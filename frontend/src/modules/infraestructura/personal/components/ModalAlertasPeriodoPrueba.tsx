@@ -14,7 +14,10 @@ import {
   Calendar,
   Briefcase,
   ExternalLink,
+  Mail,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { EmpleadoPerfilItem } from "@/types/empleado";
 import { resolveFotoUrl, getInitials } from "./personalTable.utils";
 import { personalService } from "../services/personalService";
@@ -40,6 +43,7 @@ export const ModalAlertasPeriodoPrueba: React.FC<Props> = ({
   const [search, setSearch] = useState("");
   const [remotosPrueba, setRemotosPrueba] = useState<EmpleadoPerfilItem[]>([]);
   const [isLoadingRemoto, setIsLoadingRemoto] = useState(false);
+  const [isEnviandoAlertas, setIsEnviandoAlertas] = useState(false);
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -351,17 +355,73 @@ export const ModalAlertasPeriodoPrueba: React.FC<Props> = ({
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 flex items-center justify-between p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Mostrando <strong>{colaboradoresFiltrados.length}</strong> de <strong>{colaboradoresEnPrueba.length}</strong> colaborador{colaboradoresEnPrueba.length === 1 ? "" : "es"} en período de prueba
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors"
-          >
-            Cerrar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (criticos.length === 0) {
+                  toast.info("No hay colaboradores en estado crítico (<= 15 días) para alertar.");
+                  return;
+                }
+
+                const confirmar = window.confirm(
+                  `¿Deseas enviar las alertas por correo electrónico para los ${criticos.length} colaborador(es) en período de prueba crítico (<= 15 días)?\n\nSe notificará institucionalmente a Gestión Humana, Programación y a sus supervisores directos.`
+                );
+                if (!confirmar) return;
+
+                try {
+                  setIsEnviandoAlertas(true);
+                  const ids = criticos.map((c) => c.id);
+                  const res = await personalService.enviarAlertasPeriodoPrueba(ids);
+                  if (res.idempotente) {
+                    toast.info(res.msg);
+                  } else {
+                    toast.success(res.msg);
+                  }
+                } catch (err: any) {
+                  toast.error(
+                    err?.response?.data?.error || err?.response?.data?.msg || err?.message || "Error al enviar alertas por correo."
+                  );
+                } finally {
+                  setIsEnviandoAlertas(false);
+                }
+              }}
+              disabled={isEnviandoAlertas || criticos.length === 0}
+              title={
+                criticos.length === 0
+                  ? "No hay colaboradores críticos (<= 15 días) para notificar"
+                  : `Enviar alertas por correo para ${criticos.length} colaborador(es) críticos`
+              }
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition-colors ${
+                criticos.length === 0 || isEnviandoAlertas
+                  ? "bg-amber-300 dark:bg-amber-900/40 text-amber-100 dark:text-amber-500 cursor-not-allowed"
+                  : "bg-amber-600 hover:bg-amber-500 dark:bg-amber-600 dark:hover:bg-amber-500 cursor-pointer"
+              }`}
+            >
+              {isEnviandoAlertas ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4" />
+              )}
+              <span>{isEnviandoAlertas ? "Enviando..." : "Enviar alertas por correo"}</span>
+              {criticos.length > 0 && !isEnviandoAlertas && (
+                <span className="ml-1 rounded-full bg-amber-700/60 px-1.5 py-0.2 text-[10px] font-bold">
+                  {criticos.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       </div>
     </div>

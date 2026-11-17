@@ -1020,6 +1020,18 @@ class EmpleadoWorkflowService:
                 ip_origen=ip_address
             )
 
+        # 6. Notificación Institucional por Correo (Puntos 2.2 y 6 - Outbox Pattern)
+        try:
+            from apps.common.services.notificacion_correo_service import NotificacionCorreoService
+            NotificacionCorreoService.encolar_egreso(
+                perfil=perfil,
+                fecha_egreso=fecha_egreso,
+                motivo=motivo,
+                usuario_operador=user_operator
+            )
+        except Exception as e:
+            logger.error(f"Error al encolar notificación de egreso para empleado #{perfil.id}: {e}", exc_info=True)
+
         return perfil
 
     @classmethod
@@ -1133,8 +1145,63 @@ class EmpleadoWorkflowService:
             ip_origen=ip_address
         )
 
+        # Notificación Institucional por Correo (Puntos 2.2 y 6 - Outbox Pattern)
+        try:
+            from apps.common.services.notificacion_correo_service import NotificacionCorreoService
+            NotificacionCorreoService.encolar_reactivacion(
+                perfil=perfil,
+                movil_asignado=laboral.movil,
+                usuario_operador=user_operator
+            )
+        except Exception as e:
+            logger.error(f"Error al encolar notificación de reactivación para empleado #{perfil.id}: {e}", exc_info=True)
+
         perfil.movil_restaurado = laboral.movil
         return perfil
+
+    @classmethod
+    @transaction.atomic
+    def solicitar_cambio_area(
+        cls,
+        empleado_id: int,
+        solicitante_usuario,
+        nueva_area: str,
+        nueva_carpeta: str,
+        motivo: str,
+        ip_address: str = None
+    ):
+        """
+        Equivale a enviar_solicitud_cambio_area (Líneas 678-815 de infraestructura_cinco_sas.php).
+        Registra la auditoría y encola la notificación formal en notificaciones_correo hacia GH y Programación.
+        """
+        perfil = EmpleadoPerfil.objects.get(id=empleado_id)
+        laboral = getattr(perfil, 'laboral', None)
+
+        cls.registrar_auditoria(
+            empleado=perfil,
+            usuario=solicitante_usuario,
+            accion='SOLICITUD_TRASLADO',
+            tabla_afectada='empleados_laboral',
+            datos_anteriores={
+                'area': laboral.area if laboral else '',
+                'carpeta': laboral.carpeta if laboral else '',
+            },
+            datos_nuevos={
+                'area_solicitada': nueva_area,
+                'carpeta_solicitada': nueva_carpeta,
+                'motivo': motivo,
+            },
+            ip_origen=ip_address
+        )
+
+        from apps.common.services.notificacion_correo_service import NotificacionCorreoService
+        return NotificacionCorreoService.encolar_solicitud_traslado(
+            empleado_perfil=perfil,
+            solicitante_usuario=solicitante_usuario,
+            nueva_area=nueva_area,
+            nueva_carpeta=nueva_carpeta,
+            motivo=motivo
+        )
 
     @classmethod
     @transaction.atomic

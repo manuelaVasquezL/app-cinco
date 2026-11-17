@@ -1,0 +1,85 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Notificación Institucional - CINCO S.A.S.{% endblock %}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #334155;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9; padding: 24px 0;">
+        <tr>
+            <td align="center">
+                <!-- Contenedor Principal (Max 600px para compatibilidad total con Outlook) -->
+                <table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+                    
+                    <!-- Header Corporativo -->
+                    <tr>
+                        <td style="background-color: #ffffff; padding: 24px 32px; border-bottom: 2px solid #f1f5f9;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="left" valign="middle">
+                                        <h1 style="margin: 0; font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px;">
+                                            CINCO <span style="color: #7c3aed;">S.A.S.</span>
+                                        </h1>
+                                        <p style="margin: 2px 0 0; font-size: 11px; font-weight: 600; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">
+                                            Gestión y Control de Infraestructura
+                                        </p>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <span style="display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: #f3e8ff; color: #7e22ce;">
+                                            {% block badge_text %}NOTIFICACIÓN OFICIAL{% endblock %}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Título del Evento -->
+                    <tr>
+                        <td style="padding: 28px 32px 12px 32px;">
+                            <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #1e293b; line-height: 1.4;">
+                                {% block header_title %}Notificación Institucional{% endblock %}
+                            </h2>
+                            <p style="margin: 6px 0 0; font-size: 13px; color: #64748b; line-height: 1.5;">
+                                {% block header_subtitle %}Comunicación automática de novedades de talento humano y operaciones.{% endblock %}
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Contenido Específico -->
+                    <tr>
+                        <td style="padding: 8px 32px 28px 32px;">
+                            {% block content %}{% endblock %}
+                        </td>
+                    </tr>
+
+                    <!-- Footer Corporativo y Legal -->
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 24px 32px; border-top: 1px solid #e2e8f0;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="center" style="font-size: 11px; color: #64748b; line-height: 1.6;">
+                                        <p style="margin: 0 0 8px 0; font-weight: 600; color: #475569;">
+                                            CINCO S.A.S. • Área de Gestión Humana y Operaciones
+                                        </p>
+                                        <p style="margin: 0 0 8px 0;">
+                                            Este mensaje ha sido generado automáticamente por el sistema <strong>App Cinco</strong>.<br />
+                                            Por razones de seguridad y cumplimiento de la Ley de Habeas Data, no responda a este correo electrónico.
+                                        </p>
+                                        <p style="margin: 0; font-size: 10px; color: #94a3b8;">
+                                            Mensaje confidencial dirigido exclusivamente a las áreas institucionales de Jurídica, SST, Sistemas, Programación y Gestión Humana.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+
