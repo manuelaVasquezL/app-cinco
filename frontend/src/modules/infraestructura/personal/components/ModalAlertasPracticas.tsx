@@ -40,8 +40,8 @@ export const ModalAlertasPracticas: React.FC<Props> = ({
   onSelectEmpleado,
   onFiltrarEnTabla,
 }) => {
-  const [tabUrgencia, setTabUrgencia] = useState<TabUrgencia>("TODOS");
-  const [filtroEtapa, setFiltroEtapa] = useState<FiltroEtapa>("TODAS");
+  const [tabUrgencia, setTabUrgencia] = useState<TabUrgencia>("CRITICOS");
+  const [filtroEtapa, setFiltroEtapa] = useState<FiltroEtapa>("PRODUCTIVA");
   const [search, setSearch] = useState("");
   const [remotosPracticas, setRemotosPracticas] = useState<EmpleadoPerfilItem[]>([]);
   const [isLoadingRemoto, setIsLoadingRemoto] = useState(false);
@@ -49,6 +49,9 @@ export const ModalAlertasPracticas: React.FC<Props> = ({
 
   React.useEffect(() => {
     if (!isOpen) return;
+    setTabUrgencia("CRITICOS");
+    setFiltroEtapa("PRODUCTIVA");
+    setSearch("");
     let isMounted = true;
     setIsLoadingRemoto(true);
     personalService
@@ -145,7 +148,7 @@ export const ModalAlertasPracticas: React.FC<Props> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                  Aprendices SENA: Alertas de Prácticas
+                  Aprendices: Alertas de Prácticas
                 </h2>
                 <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
                   {colaboradoresPracticas.length} aprendiz{colaboradoresPracticas.length === 1 ? "" : "es"}
@@ -426,12 +429,12 @@ export const ModalAlertasPracticas: React.FC<Props> = ({
               type="button"
               onClick={async () => {
                 if (criticos.length === 0) {
-                  toast.info("No hay aprendices SENA en estado crítico (<= 15 días) para alertar.");
+                  toast.info("No hay aprendices en estado crítico (<= 15 días) para alertar.");
                   return;
                 }
 
                 const confirmar = window.confirm(
-                  `¿Deseas enviar las alertas por correo electrónico para los ${criticos.length} aprendiz(ces) SENA con etapa formativa próxima a vencer (<= 15 días)?\n\nSe notificará institucionalmente a Gestión Humana, Programación y a sus supervisores directos.`
+                  `¿Deseas enviar las alertas por correo electrónico para los ${criticos.length} aprendiz(ces) con etapa formativa próxima a vencer (<= 15 días)?\n\nSe notificará institucionalmente a Gestión Humana, Programación y a sus supervisores directos.`
                 );
                 if (!confirmar) return;
 

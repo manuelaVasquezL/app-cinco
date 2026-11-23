@@ -303,10 +303,10 @@ export const TablaSIIGO: React.FC<TablaSIIGOProps> = ({ onSelectEmpleado }) => {
           </div>
           <div>
             <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-              Base de Personal Nómina SIIGO
+              Base de Personal SIIGO
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Registros cargados desde el archivo de nómina de SIIGO para verificación de salarios, centros de costo y estados.
+              Registros cargados desde el archivo de nómina de SIIGO.
             </p>
           </div>
         </div>

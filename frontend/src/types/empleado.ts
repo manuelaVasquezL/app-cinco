@@ -47,6 +47,8 @@ export interface EmpleadoLaboral {
   sede?: string | null;
   ciudad_operacion?: string;
   tipo_contrato?: TipoContrato | string;
+  duracion_contrato?: string | null;
+  fecha_inicio_contrato?: string | null;
   fecha_ingreso: string;
   fecha_fin_contrato?: string | null;
   fecha_retiro?: string | null;
@@ -126,7 +128,7 @@ export interface EmpleadoSeguridadSocial {
   tipo_sangre_rh?: string | null;
   alergias_restricciones?: string | null;
   certificado_arl_url?: string | null;
-  esquema_vacunacion?: string | null;
+  esquema_vacunacion?: string | Record<string, any> | null;
 }
 
 export interface EmpleadoCertificacionesSST {
@@ -327,6 +329,7 @@ export interface EmpleadoPerfilItem {
   tipo_contrato?: string | null;
   fecha_ingreso?: string | null;
   fecha_retiro?: string | null;
+  fecha_egreso?: string | null;
   movil?: string | null;
   etapa_induccion?: EtapaInduccion | string | null;
   supervisor_directo_nombre?: string | null;
@@ -337,6 +340,7 @@ export interface EmpleadoPerfilItem {
 
   // Métricas calculadas
   dias_en_empresa: number;
+  meses_en_empresa?: number;
   dias_para_periodo_prueba?: number | null;
   en_periodo_prueba: boolean;
   dias_para_fin_practica?: number | null;
@@ -407,6 +411,7 @@ export interface EmpleadoPerfilCompleto {
 
   // Métricas
   dias_en_empresa?: number;
+  meses_en_empresa?: number;
   en_periodo_prueba?: boolean;
   dias_para_fin_practica?: number | null;
   etapa_practica_activa?: string | null;
@@ -460,10 +465,30 @@ export interface GestionarPersonaACargoPayload {
 }
 
 export interface GestionarCuentaBancariaPayload {
+  cuenta_id?: number | null;
   banco: string;
   tipo_cuenta: 'AHORROS' | 'CORRIENTE' | string;
   numero_cuenta: string;
   es_nomina?: boolean;
+  titular?: string;
+  cc_titular?: string;
+}
+
+export interface SolicitarTrasladoPayload {
+  area: string;
+  carpeta: string;
+  motivo: string;
+}
+
+export interface SolicitarTrasladoResponse {
+  success: boolean;
+  msg: string;
+  notificacion_id?: number | null;
+}
+
+export interface AreasCarpetasResponse {
+  areas: string[];
+  carpetas_por_area: Record<string, string[]>;
 }
 
 export interface PersonalEstadisticas {
@@ -548,3 +573,119 @@ export interface ImportReporteResult {
   }>;
   msg?: string;
 }
+
+// ==========================================
+// Tipos para Informe de Infraestructura y Capacidad (Legacy infraestructura_cinco_informe.php)
+// ==========================================
+
+export interface EmpleadoCapacidadItem {
+  id: number;
+  cedula: string;
+  nombre_completo: string;
+  cargo: string;
+  estado: string;
+  foto?: string | null;
+  area: string;
+  carpeta: string;
+}
+
+export interface CarpetaCapacidad {
+  name: string;
+  tecnicos: number;
+  auxiliares: number;
+  supervisores: number;
+  otros: number;
+  total: number;
+  empleados: EmpleadoCapacidadItem[];
+}
+
+export interface AreaCapacidad {
+  name: string;
+  tecnicos: number;
+  auxiliares: number;
+  supervisores: number;
+  otros: number;
+  total: number;
+  filterByCargo: string[];
+  carpetas: CarpetaCapacidad[];
+}
+
+export interface TotalesCapacidadGeneral {
+  tecnicos: number;
+  auxiliares: number;
+  supervisores: number;
+  otros: number;
+  total: number;
+}
+
+export interface MatrizCapacidad {
+  areas: AreaCapacidad[];
+  general: TotalesCapacidadGeneral;
+}
+
+export interface PeriodoPruebaItem {
+  id: number;
+  cedula: string;
+  nombre_completo: string;
+  estado: string;
+  movil?: string | null;
+  cargo: string;
+  area: string;
+  carpeta: string;
+  fecha_ingreso: string;
+  dias_restantes: number;
+}
+
+export interface AlertaContratoItem {
+  id: number;
+  cedula: string;
+  nombre_completo: string;
+  movil?: string | null;
+  cargo: string;
+  area: string;
+  carpeta: string;
+  estado: string;
+  tipo_contrato: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  dias_restantes: number;
+}
+
+export interface MovimientoMes {
+  mes: number;
+  nombre: string;
+  ingresos: number;
+  egresos: number;
+}
+
+export interface AreaRotacionItem {
+  name: string;
+  anterior: { ingresos: number; egresos: number };
+  actual: { ingresos: number; egresos: number };
+  meses: MovimientoMes[];
+}
+
+export interface RotacionResponse {
+  years: number[];
+  year_actual: number;
+  year_anterior: number;
+  areas: AreaRotacionItem[];
+  totales: {
+    anterior: { ingresos: number; egresos: number };
+    actual: { ingresos: number; egresos: number };
+    meses: MovimientoMes[];
+  };
+}
+
+export interface InformeInfraestructuraResponse {
+  anio: number;
+  anio_anterior: number;
+  capacidad: MatrizCapacidad;
+  periodo_prueba: PeriodoPruebaItem[];
+  alerta_contratos: AlertaContratoItem[];
+  rotacion: RotacionResponse;
+}
+
+// Alias para compatibilidad
+export type InformeCapacidadResponse = InformeInfraestructuraResponse;
+

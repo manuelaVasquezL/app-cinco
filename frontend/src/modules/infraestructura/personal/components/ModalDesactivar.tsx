@@ -7,6 +7,15 @@ import { toast } from "sonner";
 import { EmpleadoPerfilItem, EmpleadoPerfilCompleto } from "@/types/empleado";
 import { personalService } from "../services/personalService";
 import { usePersonalStore } from "../store/usePersonalStore";
+import DatePicker from "@/components/form/date-picker";
+
+const toDateOrUndefined = (value?: string | null): Date | undefined => {
+  if (!value) return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return undefined;
+  const [, year, month, day] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day), 12);
+};
 
 interface Props {
   empleado: EmpleadoPerfilItem | EmpleadoPerfilCompleto;
@@ -182,11 +191,19 @@ export const ModalDesactivar: React.FC<Props> = ({
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
               Fecha Efectiva de Retiro
             </label>
-            <input
-              type="date"
-              value={fechaRetiro}
-              onChange={(e) => setFechaRetiro(e.target.value)}
-              className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-red-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            <DatePicker
+              id="fecha_retiro_desactivar"
+              placeholder="AAAA-MM-DD"
+              defaultDate={fechaRetiro ? toDateOrUndefined(fechaRetiro) : undefined}
+              onChange={(dates: Date[] | Date) => {
+                const selected = Array.isArray(dates) ? dates[0] : dates;
+                if (selected instanceof Date && !isNaN(selected.getTime())) {
+                  const y = selected.getFullYear();
+                  const m = String(selected.getMonth() + 1).padStart(2, "0");
+                  const d = String(selected.getDate()).padStart(2, "0");
+                  setFechaRetiro(`${y}-${m}-${d}`);
+                }
+              }}
             />
           </div>
 

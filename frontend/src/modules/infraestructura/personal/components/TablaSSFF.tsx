@@ -60,15 +60,21 @@ export const TablaSSFF: React.FC<TablaSSFFProps> = ({ onSelectEmpleado }) => {
     const safeData = Array.isArray(data) ? data : [];
     const total = safeData.length;
     const activos = safeData.filter((d) => d.estado?.toUpperCase() === "ACTIVO").length;
-    const inactivos = safeData.filter((d) => d.estado?.toUpperCase() === "INACTIVO").length;
-    const eliminados = safeData.filter((d) => d.estado?.toUpperCase() === "DELETE").length;
-    return { total, activos, inactivos, eliminados };
+    const inactivos = safeData.filter(
+      (d) => d.estado?.toUpperCase() === "INACTIVO" || d.estado?.toUpperCase() === "DELETE"
+    ).length;
+    return { total, activos, inactivos };
   }, [data]);
 
   // Filtered by selected tab
   const filteredData = useMemo(() => {
     const safeData = Array.isArray(data) ? data : [];
     if (filtroEstado === "TODOS") return safeData;
+    if (filtroEstado === "INACTIVO") {
+      return safeData.filter(
+        (item) => item.estado?.toUpperCase() === "INACTIVO" || item.estado?.toUpperCase() === "DELETE"
+      );
+    }
     return safeData.filter((item) => item.estado?.toUpperCase() === filtroEstado);
   }, [data, filtroEstado]);
 
@@ -138,14 +144,6 @@ export const TablaSSFF: React.FC<TablaSSFFProps> = ({ onSelectEmpleado }) => {
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-300">
                 <CheckCircle2 className="w-3 h-3" />
                 Activo
-              </span>
-            );
-          }
-          if (estado === "DELETE") {
-            return (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300">
-                <XCircle className="w-3 h-3" />
-                Retirado (DELETE)
               </span>
             );
           }
@@ -286,10 +284,10 @@ export const TablaSSFF: React.FC<TablaSSFFProps> = ({ onSelectEmpleado }) => {
           </div>
           <div>
             <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-              Base de Personal SAP SuccessFactors (SSFF)
+              Base de Personal SSFF
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Registros cargados desde el archivo oficial de SuccessFactors para verificación de nómina y códigos SAP.
+              Registros cargados desde el archivo oficial de SuccessFactors.
             </p>
           </div>
         </div>
@@ -321,19 +319,6 @@ export const TablaSSFF: React.FC<TablaSSFFProps> = ({ onSelectEmpleado }) => {
             }`}
           >
             Inactivos ({counts.inactivos})
-          </button>
-          <button
-            onClick={() => {
-              setFiltroEstado("DELETE");
-              setPageIndex(0);
-            }}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              filtroEstado === "DELETE"
-                ? "bg-brand-600 text-white font-semibold shadow-sm"
-                : "text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-            }`}
-          >
-            Retirados ({counts.eliminados})
           </button>
           <button
             onClick={() => {

@@ -1,18 +1,15 @@
 // src/modules/infraestructura/personal/components/ModalImportarConciliacion.tsx
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import {
   UploadCloud,
-  FileText,
   CheckCircle2,
   AlertTriangle,
-  X,
   RefreshCw,
-  Info,
   ShieldAlert,
 } from "lucide-react";
-import Button from "@/components/ui/button/Button";
+import { ModalImportarBase, PlantillaConfig } from "@/components/ui/modal/ModalImportarBase";
 import { personalService } from "../services/personalService";
 import { ImportReporteResult } from "@/types/empleado";
 
@@ -33,35 +30,97 @@ export const ModalImportarConciliacion: React.FC<Props> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<ImportReporteResult | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  const title = tipo === "SSFF" ? "Cargar Archivo SAP SuccessFactors (SSFF)" : "Cargar Archivo de Nómina SIIGO";
+  const title =
+    tipo === "SSFF"
+      ? "Cargar Archivo SAP SuccessFactors (SSFF)"
+      : "Cargar Archivo de Nómina SIIGO";
+
   const subtitle =
     tipo === "SSFF"
-      ? "Sube el reporte exportado de SuccessFactors (.csv o .txt) para sincronizar colaboradores activos, actualizar códigos SAP (UserID) y marcar inactivos."
-      : "Sube el reporte exportado de nómina SIIGO (.csv o .txt) para actualizar colaboradores, centros de costo, salarios y estados.";
+      ? "Sincroniza colaboradores activos, actualiza códigos SAP (UserID) y concilia novedades con la base de personal."
+      : "Sincroniza salarios, centros de costo y concilia el estado de la nómina SIIGO con la base de personal.";
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setErrorMsg(null);
-      setResult(null);
-    }
+  // Plantillas CSV de ejemplo descargables
+  const plantillaSSFF: PlantillaConfig = {
+    nombreArchivo: "plantilla_ssff_sap.csv",
+    textoBoton: "Descargar Plantilla SSFF",
+    contenido: [
+      "Cédula,UserID,Nombres,Apellidos,Status",
+      "1055837370,SAP10023,Carlos Andrés,Pérez Gómez,Active",
+      "1037654321,SAP10024,Laura María,Rodríguez Silva,Active",
+      "98765432,SAP10025,Juan Camilo,Hernández Restrepo,Inactive",
+    ].join("\n"),
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
-      setErrorMsg(null);
-      setResult(null);
-    }
+  const plantillaSIIGO: PlantillaConfig = {
+    nombreArchivo: "plantilla_nomina_siigo.csv",
+    textoBoton: "Descargar Plantilla SIIGO",
+    contenido: [
+      "NIT,Nombre del Empleado,Centro de Costo,Sueldo",
+      "1055837370,Carlos Andrés Pérez Gómez,REDES_MEDELLIN,2500000",
+      "1037654321,Laura María Rodríguez Silva,ADMINISTRACION,3200000",
+      "98765432,Juan Camilo Hernández Restrepo,OPERACIONES_BOGOTA,1800000",
+    ].join("\n"),
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const instrucciones = (
+    <ul className="text-xs text-gray-500 dark:text-gray-400 space-y-1 list-disc pl-4">
+      {tipo === "SSFF" ? (
+        <>
+          <li>
+            Descarga la plantilla CSV con la estructura oficial requerida por{" "}
+            <span className="font-semibold text-gray-700 dark:text-gray-300">
+              SAP SuccessFactors
+            </span>
+            .
+          </li>
+          <li>
+            Columnas obligatorias:{" "}
+            <span className="font-semibold text-gray-700 dark:text-gray-300">
+              Cédula, Status, UserID, Nombres y Apellidos
+            </span>
+            .
+          </li>
+          <li>
+            Si el colaborador ya existe en CINCO, su Código SAP (UserID) se sincronizará automáticamente.
+          </li>
+          <li>
+            Los colaboradores no incluidos en el reporte pasarán al estado{" "}
+            <strong className="text-red-600 dark:text-red-400 font-semibold">DELETE</strong>.
+          </li>
+        </>
+      ) : (
+        <>
+          <li>
+            Descarga la plantilla CSV con la estructura oficial requerida por{" "}
+            <span className="font-semibold text-gray-700 dark:text-gray-300">
+              Nómina SIIGO
+            </span>
+            .
+          </li>
+          <li>
+            Columnas obligatorias:{" "}
+            <span className="font-semibold text-gray-700 dark:text-gray-300">
+              NIT, Nombre del Empleado, Centro de Costo y Sueldo
+            </span>
+            .
+          </li>
+          <li>
+            Actualiza el salario base y el centro de costos de cada colaborador activo.
+          </li>
+          <li>
+            Los colaboradores omitidos en el archivo pasarán al estado{" "}
+            <strong className="text-amber-600 dark:text-amber-400 font-semibold">INACTIVO</strong>.
+          </li>
+        </>
+      )}
+    </ul>
+  );
+
+  const handleSubmit = async () => {
     if (!file) {
       setErrorMsg("Por favor selecciona un archivo CSV o TXT para procesar.");
       return;
@@ -94,275 +153,203 @@ export const ModalImportarConciliacion: React.FC<Props> = ({
     setFile(null);
     setResult(null);
     setErrorMsg(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-900 p-6 shadow-2xl border border-gray-200 dark:border-gray-800 transition-all">
-        {/* Header */}
-        <div className="flex items-start justify-between pb-4 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-3">
-            <div
-              className={`p-2.5 rounded-xl ${
-                tipo === "SSFF"
-                  ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
-                  : "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400"
-              }`}
-            >
-              <UploadCloud className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {title}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {subtitle}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Form or Result View */}
-        {!result ? (
-          <form onSubmit={handleSubmit} className="mt-5 space-y-5">
-            {/* Dropzone */}
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-                file
-                  ? "border-brand-500 bg-brand-50/40 dark:bg-brand-950/20"
-                  : "border-gray-300 dark:border-gray-700 hover:border-brand-400 hover:bg-gray-50/50 dark:hover:bg-gray-800/40"
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.txt"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <div className="flex flex-col items-center">
-                <FileText
-                  className={`w-12 h-12 mb-3 ${
-                    file
-                      ? "text-brand-600 dark:text-brand-400"
-                      : "text-gray-400 dark:text-gray-500"
-                  }`}
-                />
-                {file ? (
-                  <>
-                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                      {file.name}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {(file.size / 1024).toFixed(1)} KB — Clic para cambiar archivo
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Arrastra y suelta tu archivo aquí, o{" "}
-                      <span className="text-brand-600 dark:text-brand-400 font-semibold underline">
-                        explora tus archivos
-                      </span>
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Archivos soportados: CSV o TXT delimitados por punto y coma (;), coma (,) o tabulación.
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Legacy Format Hints */}
-            <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 p-3.5 border border-gray-200 dark:border-gray-700/60 text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
-              <div className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-200">
-                <Info className="w-4 h-4 text-brand-600 dark:text-brand-400 shrink-0" />
-                <span>Estructura esperada del reporte:</span>
-              </div>
-              {tipo === "SSFF" ? (
-                <ul className="list-disc list-inside space-y-0.5 text-gray-500 dark:text-gray-400 pl-1">
-                  <li>
-                    Columnas requeridas: <code className="text-brand-600 dark:text-brand-300 font-mono">Cédula (o Cédula de Ciudadanía)</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">Status</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">UserID</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">Nombres</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">Apellidos</code>.
-                  </li>
-                  <li>
-                    Si el colaborador existe en CINCO, su Código SAP (UserID) se sincronizará automáticamente.
-                  </li>
-                  <li>
-                    Los registros ausentes en el archivo pasarán al estado <strong className="text-red-600">DELETE</strong>.
-                  </li>
-                </ul>
-              ) : (
-                <ul className="list-disc list-inside space-y-0.5 text-gray-500 dark:text-gray-400 pl-1">
-                  <li>
-                    Columnas requeridas: <code className="text-brand-600 dark:text-brand-300 font-mono">NIT</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">Nombre del Empleado</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">Centro de Costo</code>, <code className="text-brand-600 dark:text-brand-300 font-mono">Sueldo</code>.
-                  </li>
-                  <li>
-                    Sincroniza salario y centro de costos. Los registros no incluidos pasarán al estado <strong className="text-amber-600">INACTIVO</strong>.
-                  </li>
-                </ul>
-              )}
-            </div>
-
-            {/* Error Message */}
-            {errorMsg && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 p-3 text-xs text-red-700 dark:text-red-300">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
-                <div>
-                  <p className="font-semibold">Error al procesar:</p>
-                  <p>{errorMsg}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Footer Buttons */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onClose}
-                disabled={isUploading}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                disabled={!file || isUploading}
-                className="flex items-center gap-2"
-              >
-                {isUploading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Procesando archivo...</span>
-                  </>
-                ) : (
-                  <>
-                    <UploadCloud className="w-4 h-4" />
-                    <span>Cargar e Importar</span>
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        ) : (
-          /* Result Summary View */
-          <div className="mt-5 space-y-5">
-            <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-semibold text-sm">
-              <CheckCircle2 className="w-5 h-5" />
-              <span>{result.msg || "¡Reporte procesado exitosamente!"}</span>
-            </div>
-
-            {/* Summary KPI Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
-                  Total Leídos
-                </span>
-                <span className="text-xl font-bold text-gray-900 dark:text-white mt-1 block">
-                  {result.total_registros}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800/40">
-                <span className="text-[11px] font-medium text-green-700 dark:text-green-300 uppercase tracking-wider block">
-                  Nuevos Creados
-                </span>
-                <span className="text-xl font-bold text-green-700 dark:text-green-300 mt-1 block">
-                  {result.cnt_insertados}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/40">
-                <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wider block">
-                  Actualizados
-                </span>
-                <span className="text-xl font-bold text-blue-700 dark:text-blue-300 mt-1 block">
-                  {result.cnt_actualizados}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40">
-                <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300 uppercase tracking-wider block">
-                  Desactivados
-                </span>
-                <span className="text-xl font-bold text-amber-700 dark:text-amber-300 mt-1 block">
-                  {result.cnt_desactivados}
-                </span>
-              </div>
-            </div>
-
-            {tipo === "SSFF" && result.cnt_sap_actualizados !== undefined && (
-              <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/40 p-3 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200">
-                <span className="font-medium">
-                  Códigos SAP sincronizados en ficha del colaborador:
-                </span>
-                <span className="font-bold text-sm bg-indigo-200 dark:bg-indigo-900/60 px-2 py-0.5 rounded-full">
-                  {result.cnt_sap_actualizados}
-                </span>
-              </div>
-            )}
-
-            {/* Scientific Notation / Error Warnings */}
-            {result.cedulas_con_error && result.cedulas_con_error.length > 0 && (
-              <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-red-800 dark:text-red-300 font-semibold text-xs">
-                  <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>
-                    Advertencia: Se omitieron {result.cedulas_con_error.length} filas con notación científica de Excel
-                  </span>
-                </div>
-                <p className="text-[11px] text-red-700 dark:text-red-300">
-                  Excel formateó estas cédulas como exponencial (ej. <code className="bg-red-100 dark:bg-red-900/50 px-1 rounded font-mono">1.01E+09</code>). Corrígelas configurando la columna como Texto en Excel y vuelve a exportar:
-                </p>
-                <div className="max-h-36 overflow-y-auto border border-red-200 dark:border-red-900/40 rounded-lg bg-white dark:bg-gray-900">
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="bg-red-100/60 dark:bg-red-950/60 text-red-900 dark:text-red-200">
-                      <tr>
-                        <th className="py-1 px-3">Fila</th>
-                        <th className="py-1 px-3">Valor Cédula</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {result.cedulas_con_error.map((errItem, idx) => (
-                        <tr key={idx} className="text-gray-700 dark:text-gray-300">
-                          <td className="py-1 px-3 font-medium">#{errItem.fila}</td>
-                          <td className="py-1 px-3 font-mono text-red-600 dark:text-red-400">
-                            {errItem.cedula}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleReset}
-                className="text-xs"
-              >
-                Cargar otro archivo
-              </Button>
-              <Button type="button" onClick={onClose} className="text-xs">
-                Aceptar y Finalizar
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
+  const iconoHeader = (
+    <div
+      className={`p-2 rounded-xl ${
+        tipo === "SSFF"
+          ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
+          : "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400"
+      }`}
+    >
+      <UploadCloud className="w-5 h-5" />
     </div>
   );
-};
 
+  const footerActions = !result ? (
+    <>
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={isUploading}
+        className="px-4 py-2 text-sm font-semibold rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 active:scale-95 transition-all duration-200 disabled:opacity-50 cursor-pointer"
+      >
+        Cancelar
+      </button>
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={!file || isUploading}
+        className="flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:dark:bg-gray-800 disabled:text-gray-400 disabled:dark:text-gray-600 disabled:shadow-none disabled:cursor-not-allowed rounded-xl transition-all shadow-md hover:shadow-indigo-500/25 active:scale-95 cursor-pointer"
+      >
+        {isUploading ? (
+          <>
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span>Procesando archivo...</span>
+          </>
+        ) : (
+          <>
+            <UploadCloud className="w-4 h-4" />
+            <span>Cargar e Importar</span>
+          </>
+        )}
+      </button>
+    </>
+  ) : (
+    <>
+      <button
+        type="button"
+        onClick={handleReset}
+        className="px-4 py-2 text-sm font-semibold rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 active:scale-95 transition-all duration-200 cursor-pointer"
+      >
+        Cargar otro archivo
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        className="flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md hover:shadow-indigo-500/25 active:scale-95 cursor-pointer"
+      >
+        Aceptar y Finalizar
+      </button>
+    </>
+  );
+
+  return (
+    <ModalImportarBase
+      isOpen={isOpen}
+      onClose={onClose}
+      titulo={title}
+      subtitulo={subtitle}
+      icono={iconoHeader}
+      tituloInstrucciones="¿Cómo importar tus datos?"
+      instrucciones={!result ? instrucciones : undefined}
+      plantillaConfig={!result ? (tipo === "SSFF" ? plantillaSSFF : plantillaSIIGO) : undefined}
+      file={file}
+      onFileSelect={(f) => {
+        setFile(f);
+        setErrorMsg(null);
+        setResult(null);
+      }}
+      accept=".csv,.txt"
+      textoDropzone="Selecciona o arrastra tu archivo CSV o TXT"
+      ayudaFormatos="Archivos soportados: .csv o .txt delimitados por comas (,), punto y coma (;) o tabulaciones"
+      isProcessing={isUploading}
+      footerActions={footerActions}
+    >
+      {/* Mensaje de Error si ocurre durante la subida */}
+      {errorMsg && (
+        <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 p-4 text-xs text-red-700 dark:text-red-300">
+          <AlertTriangle className="w-5 h-5 shrink-0 text-red-600 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="font-bold text-sm">Error al procesar el archivo:</p>
+            <p className="leading-relaxed">{errorMsg}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Vista de Resultados Consolidada (KPIs y Advertencias) */}
+      {result && (
+        <div className="space-y-6 pt-2">
+          {/* Banner de Éxito */}
+          <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300 font-semibold text-sm">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{result.msg || "¡Reporte procesado exitosamente!"}</span>
+          </div>
+
+          {/* Tarjetas KPI de Resumen */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="p-4 rounded-2xl bg-gray-50/80 dark:bg-gray-800/50 border border-gray-200/80 dark:border-gray-700/60 shadow-xs">
+              <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
+                Total Leídos
+              </span>
+              <span className="text-2xl font-black text-gray-900 dark:text-white mt-1.5 block">
+                {result.total_registros}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 shadow-xs">
+              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider block">
+                Nuevos Creados
+              </span>
+              <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300 mt-1.5 block">
+                {result.cnt_insertados}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/50 shadow-xs">
+              <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider block">
+                Actualizados
+              </span>
+              <span className="text-2xl font-black text-blue-700 dark:text-blue-300 mt-1.5 block">
+                {result.cnt_actualizados}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 shadow-xs">
+              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider block">
+                Desactivados
+              </span>
+              <span className="text-2xl font-black text-amber-700 dark:text-amber-300 mt-1.5 block">
+                {result.cnt_desactivados}
+              </span>
+            </div>
+          </div>
+
+          {/* Banner especial para SAP SuccessFactors */}
+          {tipo === "SSFF" && result.cnt_sap_actualizados !== undefined && (
+            <div className="rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/50 p-4 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 shadow-xs">
+              <span className="font-semibold text-sm">
+                Códigos SAP sincronizados en ficha del colaborador:
+              </span>
+              <span className="font-black text-base bg-indigo-200/80 dark:bg-indigo-900/80 text-indigo-900 dark:text-indigo-100 px-3 py-1 rounded-xl">
+                {result.cnt_sap_actualizados}
+              </span>
+            </div>
+          )}
+
+          {/* Tabla de Advertencia por Cédulas con Notación Científica en Excel */}
+          {result.cedulas_con_error && result.cedulas_con_error.length > 0 && (
+            <div className="rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/80 dark:bg-red-950/30 p-5 space-y-3 shadow-xs">
+              <div className="flex items-center gap-2 text-red-800 dark:text-red-300 font-bold text-xs">
+                <ShieldAlert className="w-5 h-5 text-red-600 shrink-0" />
+                <span>
+                  Advertencia: Se omitieron {result.cedulas_con_error.length} filas con notación científica de Excel
+                </span>
+              </div>
+              <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed">
+                Excel formateó estas cédulas como exponencial (ej.{" "}
+                <code className="bg-red-100 dark:bg-red-900/60 px-1.5 py-0.5 rounded font-mono text-[11px]">
+                  1.01E+09
+                </code>
+                ). Corrígelas configurando la columna como Texto en Excel y vuelve a exportar:
+              </p>
+              <div className="max-h-40 overflow-y-auto border border-red-200 dark:border-red-900/40 rounded-xl bg-white dark:bg-gray-900">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-red-100/70 dark:bg-red-950/60 text-red-900 dark:text-red-200 sticky top-0 font-bold uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2 px-4 w-24">Fila</th>
+                      <th className="py-2 px-4">Valor Cédula en Archivo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {result.cedulas_con_error.map((errItem, idx) => (
+                      <tr key={idx} className="hover:bg-red-50/50 dark:hover:bg-red-950/20">
+                        <td className="py-2 px-4 font-mono font-medium text-gray-500">
+                          #{errItem.fila}
+                        </td>
+                        <td className="py-2 px-4 font-mono font-bold text-red-600 dark:text-red-400">
+                          {errItem.cedula}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </ModalImportarBase>
+  );
+};

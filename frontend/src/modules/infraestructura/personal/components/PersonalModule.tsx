@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState } from "react";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
-import { Users, FileSpreadsheet, Building } from "lucide-react";
+import { Users, FileSpreadsheet, Building, BarChart3 } from "lucide-react";
 import { usePersonalStore } from "../store/usePersonalStore";
 import { PersonalStats } from "./PersonalStats";
 import { PersonalFiltersBar } from "./PersonalFiltersBar";
@@ -14,8 +14,9 @@ import { ModalAlertasPeriodoPrueba } from "./ModalAlertasPeriodoPrueba";
 import { ModalAlertasPracticas } from "./ModalAlertasPracticas";
 import { TablaSIIGO } from "./TablaSIIGO";
 import { TablaSSFF } from "./TablaSSFF";
+import { TablaInforme } from "./TablaInforme";
 
-export type PersonalModuleTab = "personal" | "siigo" | "ssff";
+export type PersonalModuleTab = "personal" | "siigo" | "ssff" | "informe";
 
 export const PersonalModule: React.FC = () => {
   const {
@@ -81,6 +82,11 @@ export const PersonalModule: React.FC = () => {
       id: "ssff" as PersonalModuleTab,
       label: "Base SSFF",
       icon: FileSpreadsheet,
+    },
+    {
+      id: "informe" as PersonalModuleTab,
+      label: "Informe",
+      icon: BarChart3,
     },
   ];
 
@@ -152,6 +158,13 @@ export const PersonalModule: React.FC = () => {
       {activeTab === "ssff" && (
         <div className="animate-in fade-in duration-150">
           <TablaSSFF onSelectEmpleado={handleSelectEmpleado} />
+        </div>
+      )}
+
+      {/* TAB 4: Informe de Capacidad y Rotación */}
+      {activeTab === "informe" && (
+        <div className="animate-in fade-in duration-150">
+          <TablaInforme onSelectEmpleado={handleSelectEmpleado} />
         </div>
       )}
 

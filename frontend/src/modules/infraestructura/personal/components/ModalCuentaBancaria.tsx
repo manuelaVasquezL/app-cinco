@@ -1,10 +1,10 @@
 // src/modules/infraestructura/personal/components/ModalCuentaBancaria.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, CreditCard, ShieldCheck, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { EmpleadoPerfilCompleto } from "@/types/empleado";
+import { EmpleadoPerfilCompleto, EmpleadoCuentaBancaria } from "@/types/empleado";
 import { personalService } from "../services/personalService";
 import { usePersonalStore } from "../store/usePersonalStore";
 
@@ -13,6 +13,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  cuentaToEdit?: EmpleadoCuentaBancaria | null;
 }
 
 const BANCOS_COLOMBIA = [
@@ -37,6 +38,7 @@ export const ModalCuentaBancaria: React.FC<Props> = ({
   isOpen,
   onClose,
   onSuccess,
+  cuentaToEdit,
 }) => {
   const { fetchEmpleadoDetail } = usePersonalStore();
   const [banco, setBanco] = useState("DAVIVIENDA");
@@ -44,6 +46,20 @@ export const ModalCuentaBancaria: React.FC<Props> = ({
   const [numeroCuenta, setNumeroCuenta] = useState("");
   const [esNomina, setEsNomina] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (cuentaToEdit) {
+      setBanco(cuentaToEdit.banco || "DAVIVIENDA");
+      setTipoCuenta(cuentaToEdit.tipo_cuenta || "AHORROS");
+      setNumeroCuenta(cuentaToEdit.numero_cuenta || "");
+      setEsNomina(Boolean(cuentaToEdit.es_nomina));
+    } else {
+      setBanco("DAVIVIENDA");
+      setTipoCuenta("AHORROS");
+      setNumeroCuenta("");
+      setEsNomina(true);
+    }
+  }, [cuentaToEdit, isOpen]);
 
   if (!isOpen) return null;
 
@@ -58,18 +74,23 @@ export const ModalCuentaBancaria: React.FC<Props> = ({
     setIsSubmitting(true);
     try {
       await personalService.gestionarCuentaBancaria(empleado.id, {
+        cuenta_id: cuentaToEdit?.id || null,
         banco,
         tipo_cuenta: tipoCuenta,
         numero_cuenta: digitsOnly,
         es_nomina: esNomina,
       });
 
-      toast.success("Cuenta bancaria registrada con normalización de 12 dígitos.");
+      toast.success(
+        cuentaToEdit
+          ? "Cuenta bancaria actualizada correctamente."
+          : "Cuenta bancaria registrada con normalización de 12 dígitos."
+      );
       await fetchEmpleadoDetail(empleado.id);
       onSuccess?.();
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al registrar cuenta bancaria";
+      const msg = err instanceof Error ? err.message : "Error al guardar cuenta bancaria";
       toast.error(msg);
     } finally {
       setIsSubmitting(false);
@@ -93,7 +114,7 @@ export const ModalCuentaBancaria: React.FC<Props> = ({
             </div>
             <div>
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                Gestionar Cuenta Bancaria
+                {cuentaToEdit ? "Editar Cuenta Bancaria" : "Agregar Cuenta Bancaria"}
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {empleado.nombre_completo}
@@ -197,7 +218,7 @@ export const ModalCuentaBancaria: React.FC<Props> = ({
               ) : (
                 <>
                   <CreditCard className="h-4 w-4" />
-                  <span>Guardar Cuenta</span>
+                  <span>{cuentaToEdit ? "Actualizar Cuenta" : "Guardar Cuenta"}</span>
                 </>
               )}
             </button>

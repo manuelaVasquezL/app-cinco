@@ -38,7 +38,8 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
         for date_field in [
             'fecha_ingreso', 'fecha_egreso', 'fecha_entrega_area',
             'practica_lectiva_inicio', 'practica_lectiva_fin',
-            'practica_productiva_inicio', 'practica_productiva_fin'
+            'practica_productiva_inicio', 'practica_productiva_fin',
+            'fecha_inicio_contrato', 'fecha_fin_contrato'
         ]:
             if date_field in data and data[date_field] in ('', None):
                 data[date_field] = None
@@ -99,6 +100,10 @@ class EmpleadoLaboralSerializer(serializers.ModelSerializer):
             'practica_lectiva_fin',
             'practica_productiva_inicio',
             'practica_productiva_fin',
+            'tipo_contrato',
+            'duracion_contrato',
+            'fecha_inicio_contrato',
+            'fecha_fin_contrato',
         ]
 
 
@@ -120,6 +125,24 @@ class EmpleadoContactoSerializer(serializers.ModelSerializer):
 
 
 class EmpleadoSeguridadSocialSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        val = ret.get('esquema_vacunacion')
+        if isinstance(val, dict):
+            parts = []
+            doses = [f"{str(k).replace('_', ' ').title()}: {v}" for k, v in val.items() if 'dosis' in str(k).lower() and v]
+            if doses:
+                parts.append(", ".join(doses))
+            fecha_ult = val.get('fecha_ult_vacuna')
+            if fecha_ult:
+                f_str = str(fecha_ult)[:10]
+                if f_str and f_str != '0000-00-00':
+                    parts.append(f"Fecha: {f_str}")
+            ret['esquema_vacunacion'] = " | ".join(parts) if parts else (", ".join(str(v) for v in val.values() if v) or None)
+        elif isinstance(val, list):
+            ret['esquema_vacunacion'] = ", ".join(str(v) for v in val if v) or None
+        return ret
+
     class Meta:
         model = EmpleadoSeguridadSocial
         fields = [
@@ -335,6 +358,7 @@ class EmpleadoAuditoriaLogSerializer(serializers.ModelSerializer):
 class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
     nombre_completo = serializers.ReadOnlyField()
     dias_en_empresa = serializers.ReadOnlyField()
+    meses_en_empresa = serializers.ReadOnlyField()
     cargo = serializers.CharField(source='laboral.cargo', read_only=True)
     area = serializers.CharField(source='laboral.area', read_only=True)
     carpeta = serializers.CharField(source='laboral.carpeta', read_only=True)
@@ -343,6 +367,7 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
     tipo_labor = serializers.CharField(source='laboral.tipo_labor', read_only=True)
     etapa_induccion = serializers.CharField(source='laboral.etapa_induccion', read_only=True)
     fecha_ingreso = serializers.DateField(source='laboral.fecha_ingreso', read_only=True)
+    fecha_egreso = serializers.DateField(source='laboral.fecha_egreso', read_only=True)
     dias_para_periodo_prueba = serializers.IntegerField(source='laboral.dias_para_periodo_prueba', read_only=True)
     en_periodo_prueba = serializers.BooleanField(read_only=True)
     dias_para_fin_practica = serializers.IntegerField(source='laboral.dias_para_fin_practica', read_only=True)
@@ -381,6 +406,7 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
             'tipo_labor',
             'etapa_induccion',
             'fecha_ingreso',
+            'fecha_egreso',
             'dias_para_periodo_prueba',
             'en_periodo_prueba',
             'dias_para_fin_practica',
@@ -391,6 +417,7 @@ class EmpleadoPerfilListSerializer(serializers.ModelSerializer):
             'practica_productiva_inicio',
             'practica_productiva_fin',
             'dias_en_empresa',
+            'meses_en_empresa',
             'placa_vehiculo',
             'estado_alturas',
             'cnt_dotacion',
@@ -432,6 +459,7 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(read_only=True)
     nombre_completo = serializers.ReadOnlyField()
     dias_en_empresa = serializers.ReadOnlyField()
+    meses_en_empresa = serializers.ReadOnlyField()
     laboral = EmpleadoLaboralSerializer(required=False)
     contacto = EmpleadoContactoSerializer(required=False)
     seguridad_social = EmpleadoSeguridadSocialSerializer(required=False)
@@ -496,6 +524,7 @@ class EmpleadoPerfilDetailSerializer(serializers.ModelSerializer):
             'apellidos',
             'nombre_completo',
             'dias_en_empresa',
+            'meses_en_empresa',
             'fecha_nacimiento',
             'genero',
             'estado_civil',

@@ -3007,6 +3007,378 @@ class SincronizacionCruzadaTransporteAzulTests(TestCase):
             self.assertIn("Conexión rechazada", res['errores'][0])
 
 
+class InformeCapacidadTests(BaseEmpleadoTestCase):
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral, EmpleadoMovilidad
+        from rest_framework.test import APIRequestFactory
+        import uuid
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        self.user_admin = User.objects.create(username=f'admin_{uid}', is_superuser=True)
+        self.factory = APIRequestFactory()
+
+        # Empleado 1: Técnico HFC activo con moto
+        self.u1 = User.objects.create(username=f'u1_{uid}')
+        self.p1 = EmpleadoPerfil.objects.create(
+            user=self.u1,
+            numero_documento=f'DOC1_{uid}',
+            nombres='Carlos',
+            apellidos='Tecnico HFC',
+            estado='ACTIVO'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p1,
+            cargo='TECNICO INSTALACIONES',
+            carpeta='INSTALACIONES BIDIRECCIONAL',
+            fecha_ingreso=date(2026, 1, 15)
+        )
+        EmpleadoMovilidad.objects.create(
+            empleado=self.p1,
+            medio_transporte='MOTO',
+            placa_vehiculo='MOT123'
+        )
+
+        # Empleado 2: Auxiliar HFC activo con carro
+        self.u2 = User.objects.create(username=f'u2_{uid}')
+        self.p2 = EmpleadoPerfil.objects.create(
+            user=self.u2,
+            numero_documento=f'DOC2_{uid}',
+            nombres='Pedro',
+            apellidos='Auxiliar HFC',
+            estado='ACTIVO'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p2,
+            cargo='AUXILIAR TECNICO',
+            carpeta='INSTALACIONES BIDIRECCIONAL',
+            fecha_ingreso=date(2026, 1, 15)
+        )
+        EmpleadoMovilidad.objects.create(
+            empleado=self.p2,
+            medio_transporte='CARRO',
+            placa_vehiculo='CAR456'
+        )
+
+        # Empleado 3: Técnico FTTH activo con moto
+        self.u3 = User.objects.create(username=f'u3_{uid}')
+        self.p3 = EmpleadoPerfil.objects.create(
+            user=self.u3,
+            numero_documento=f'DOC3_{uid}',
+            nombres='Mario',
+            apellidos='Tecnico FTTH',
+            estado='ACTIVO'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p3,
+            cargo='TECNICO FTTH',
+            carpeta='FTTH',
+            fecha_ingreso=date(2026, 2, 1)
+        )
+        EmpleadoMovilidad.objects.create(
+            empleado=self.p3,
+            medio_transporte='MOTO',
+            placa_vehiculo='MOT789'
+        )
+
+        # Empleado 4: Técnico FTTH retirado en Noviembre 2026
+        self.u4 = User.objects.create(username=f'u4_{uid}')
+        self.p4 = EmpleadoPerfil.objects.create(
+            user=self.u4,
+            numero_documento=f'DOC4_{uid}',
+            nombres='Luis',
+            apellidos='Tecnico Egreso',
+            estado='INACTIVO'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.p4,
+            cargo='TECNICO FTTH',
+            carpeta='FTTH',
+            fecha_ingreso=date(2026, 2, 1),
+            fecha_egreso=date(2026, 11, 10)
+        )
+
+    def test_servicio_informe_capacidad_calcula_metricas(self):
+        from apps.empleados.services import InformeCapacidadService
+
+        informe = InformeCapacidadService.generar_informe(anio=2026)
+
+        self.assertEqual(informe['anio'], 2026)
+        self.assertEqual(informe['anio_anterior'], 2025)
+
+        # 1. Capacidad por área y carpetas
+        self.assertIn('capacidad', informe)
+        capacidad = informe['capacidad']
+        self.assertIn('areas', capacidad)
+        self.assertIn('general', capacidad)
+        self.assertGreater(capacidad['general']['total'], 0)
+
+        # 2. Período de prueba
+        self.assertIn('periodo_prueba', informe)
+        self.assertIsInstance(informe['periodo_prueba'], list)
+
+        # 3. Alertas de contratos
+        self.assertIn('alerta_contratos', informe)
+        self.assertIsInstance(informe['alerta_contratos'], list)
+
+        # 4. Rotación por área
+        self.assertIn('rotacion', informe)
+        rotacion = informe['rotacion']
+        self.assertIn('years', rotacion)
+        self.assertIn('areas', rotacion)
+        self.assertIn('totales', rotacion)
+        self.assertEqual(len(rotacion['totales']['meses']), 12)
+
+    def test_endpoint_informe_capacidad(self):
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+        from rest_framework.test import force_authenticate
+
+        view = EmpleadoPerfilViewSet.as_view({'get': 'informe_capacidad'})
+        req = self.factory.get('/empleados/perfiles/informe-capacidad/?anio=2026')
+        force_authenticate(req, user=self.user_admin)
+
+        resp = view(req)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('capacidad', resp.data)
+        self.assertIn('periodo_prueba', resp.data)
+        self.assertIn('alerta_contratos', resp.data)
+        self.assertIn('rotacion', resp.data)
+        self.assertEqual(resp.data['anio'], 2026)
+
+    def test_retrieve_empleado_on_demand_sync(self):
+        """
+        Al consultar un ID que no existe en EmpleadoPerfil pero sí en legacy,
+        EmpleadoPerfilViewSet.retrieve() sincroniza y retorna HTTP 200 con la ficha 360.
+        """
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+        from rest_framework.test import force_authenticate
+        from unittest.mock import patch
+
+        view = EmpleadoPerfilViewSet.as_view({'get': 'retrieve'})
+        req = self.factory.get('/empleados/perfiles/99999/')
+        force_authenticate(req, user=self.user_admin)
+
+        with patch('apps.empleados.services.empleado_workflow_service.EmpleadoWorkflowService.sincronizar_desde_legacy') as mock_sync:
+            mock_sync.return_value = self.p1
+            resp = view(req, pk='99999')
+            self.assertEqual(resp.status_code, 200)
+            mock_sync.assert_called_once_with('99999')
+
+    def test_gestionar_y_eliminar_persona_a_cargo(self):
+        """
+        Prueba la creación, actualización y eliminación de personas a cargo en la ficha 360.
+        """
+        from apps.empleados.views.empleado_perfil_view import EmpleadoPerfilViewSet
+        from apps.empleados.models import EmpleadoPersonaACargo
+        from apps.empleados.services import EmpleadoWorkflowService
+        from rest_framework.test import force_authenticate
+
+        # 1. Crear persona a cargo vía workflow service
+        persona = EmpleadoWorkflowService.gestionar_persona_a_cargo(
+            empleado_id=self.p1.id,
+            nombre_completo='SANTIAGO PRUEBA',
+            parentesco='HIJO',
+            tipo_documento='TI',
+            numero_documento='11223344',
+            user_operator=self.user_admin
+        )
+        self.assertEqual(persona.nombre_completo, 'SANTIAGO PRUEBA')
+        self.assertEqual(persona.parentesco, 'HIJO')
+
+        # 2. Eliminar vía endpoint DELETE
+        view = EmpleadoPerfilViewSet.as_view({'delete': 'eliminar_persona_a_cargo'})
+        req = self.factory.delete(f'/empleados/perfiles/{self.p1.id}/personas-a-cargo/{persona.id}/')
+        force_authenticate(req, user=self.user_admin)
+
+        resp = view(req, pk=self.p1.id, persona_id=persona.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data.get('success'))
+        self.assertFalse(EmpleadoPersonaACargo.objects.filter(id=persona.id).exists())
+
+
+class CatalogoAreasCarpetasTests(BaseEmpleadoTestCase):
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth import get_user_model
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from rest_framework.test import APIRequestFactory
+        from django.core.cache import cache
+        from datetime import date
+        import uuid
+
+        cache.clear()
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        self.user = User.objects.create(username=f'usr_{uid}')
+        self.perfil = EmpleadoPerfil.objects.create(
+            user=self.user,
+            numero_documento=f'CC_{uid}',
+            nombres='TEST',
+            apellidos='CATALOGO',
+            estado='ACTIVO'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=self.perfil,
+            area='OPERACIONES',
+            carpeta='INSTALACIONES',
+            fecha_ingreso=date(2026, 1, 1)
+        )
+        self.factory = APIRequestFactory()
+
+    def test_obtener_catalogo_areas_carpetas_endpoint(self):
+        from apps.empleados.views import EmpleadoPerfilViewSet
+        from rest_framework.test import force_authenticate
+
+        view = EmpleadoPerfilViewSet.as_view({'get': 'areas_carpetas'})
+        req = self.factory.get('/empleados/perfiles/areas-carpetas/')
+        force_authenticate(req, user=self.user)
+
+        resp = view(req)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('areas', resp.data)
+        self.assertIn('carpetas_por_area', resp.data)
+        self.assertIsInstance(resp.data['areas'], list)
+        self.assertIsInstance(resp.data['carpetas_por_area'], dict)
+        self.assertGreater(len(resp.data['areas']), 0)
+
+    def test_lista_supervisores_filtra_por_cargo_y_tipo_labor(self):
+        from apps.empleados.views import EmpleadoPerfilViewSet
+        from apps.empleados.models import EmpleadoPerfil, EmpleadoLaboral
+        from rest_framework.test import force_authenticate
+        from django.contrib.auth import get_user_model
+        import uuid
+
+        User = get_user_model()
+        uid = uuid.uuid4().hex[:6]
+        user_sup = User.objects.create(username=f'sup_{uid}')
+        perfil_sup = EmpleadoPerfil.objects.create(
+            user=user_sup,
+            numero_documento=f'CC_SUP_{uid}',
+            nombres='MARIO',
+            apellidos='GOMEZ',
+            estado='ACTIVO'
+        )
+        EmpleadoLaboral.objects.create(
+            empleado=perfil_sup,
+            cargo='SUPERVISOR HFC',
+            tipo_labor='OPERATIVO',
+            area='OPERACIONES',
+            fecha_ingreso=date(2026, 1, 1)
+        )
+
+        view = EmpleadoPerfilViewSet.as_view({'get': 'lista_supervisores'})
+        req = self.factory.get('/empleados/perfiles/supervisores/')
+        force_authenticate(req, user=self.user)
+
+        resp = view(req)
+        self.assertEqual(resp.status_code, 200)
+        docs = [s['documento'] for s in resp.data]
+        self.assertIn(f'CC_SUP_{uid}', docs)
+
+    def test_crear_empleado_con_datos_integrales(self):
+        from apps.empleados.services.empleado_workflow_service import EmpleadoWorkflowService
+        from apps.empleados.models import (
+            EmpleadoPerfil, EmpleadoLaboral, EmpleadoContactoEmergencia,
+            EmpleadoPersonaACargo, EmpleadoDotacionActivos, EmpleadoMovilidad
+        )
+        import uuid
+
+        uid = uuid.uuid4().hex[:6]
+        doc_test = f"DOC_{uid}"
+
+        payload = {
+            'tipo_documento': 'CC',
+            'numero_documento': doc_test,
+            'nombres': 'CARLOS ANDRES',
+            'apellidos': 'RESTREPO VELEZ',
+            'fecha_nacimiento': '1995-05-15',
+            'fecha_expedicion_documento': '2013-06-20',
+            'laboral': {
+                'cargo': 'TECNICO FIBRA',
+                'area': 'OPERACIONES',
+                'carpeta': 'HFC',
+                'fecha_ingreso': '2026-02-01',
+                'tipo_contrato': 'FIJO',
+                'duracion_contrato': '6 Meses',
+                'fecha_inicio_contrato': '2026-02-01',
+                'fecha_fin_contrato': '2026-08-01',
+                'formador': 'ALEJANDRO GUZMAN',
+            },
+            'contacto': {
+                'celular_corporativo': '3001112233',
+                'direccion_residencia': 'Calle 10 # 20-30',
+            },
+            'contactos_emergencia': [
+                {
+                    'nombre_completo': 'MARIA VELEZ',
+                    'parentesco': 'MADRE',
+                    'telefono': '3109998877',
+                    'es_principal': True,
+                }
+            ],
+            'personas_a_cargo': [
+                {
+                    'nombre_completo': 'LUCAS RESTREPO',
+                    'parentesco': 'HIJO',
+                    'numero_documento': '1099887766',
+                    'fecha_nacimiento': '2020-01-10',
+                }
+            ],
+            'dotacion_activos': {
+                'talla_camisa': 'M',
+                'talla_pantalon': '32',
+                'talla_calzado': '41',
+                'tiene_carnet': True,
+                'fecha_entrega_carnet': '2026-02-01',
+            },
+            'movilidad': {
+                'sabe_conducir': True,
+                'medio_transporte': 'MOTO',
+                'placa_vehiculo': 'XYZ12D',
+            }
+        }
+
+        perfil = EmpleadoWorkflowService.crear_empleado(
+            data=payload,
+            user_creator=self.user,
+            ip_address='127.0.0.1'
+        )
+
+        self.assertIsNotNone(perfil)
+        self.assertEqual(perfil.numero_documento, doc_test)
+        self.assertEqual(perfil.laboral.cargo, 'TECNICO FIBRA')
+        self.assertEqual(perfil.laboral.tipo_contrato, 'FIJO')
+        self.assertEqual(perfil.laboral.formador, 'ALEJANDRO GUZMAN')
+
+        # Contactos de emergencia creados
+        ce = EmpleadoContactoEmergencia.objects.filter(empleado=perfil).first()
+        self.assertIsNotNone(ce)
+        self.assertEqual(ce.nombre_completo, 'MARIA VELEZ')
+        self.assertEqual(ce.parentesco, 'MADRE')
+
+        # Personas a cargo creadas
+        pac = EmpleadoPersonaACargo.objects.filter(empleado=perfil).first()
+        self.assertIsNotNone(pac)
+        self.assertEqual(pac.nombre_completo, 'LUCAS RESTREPO')
+
+        # Dotación creada
+        dot = EmpleadoDotacionActivos.objects.filter(empleado=perfil).first()
+        self.assertIsNotNone(dot)
+        self.assertEqual(dot.talla_camisa, 'M')
+        self.assertEqual(dot.talla_calzado, '41')
+
+        # Movilidad creada
+        mov = EmpleadoMovilidad.objects.filter(empleado=perfil).first()
+        self.assertIsNotNone(mov)
+        self.assertEqual(mov.placa_vehiculo, 'XYZ12D')
+
+
+
+
+
+
 
 
 

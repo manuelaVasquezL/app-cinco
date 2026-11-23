@@ -34,11 +34,76 @@ export const getInitials = (nombre: string) => {
   return (parts[0]?.[0] || "U").toUpperCase();
 };
 
+export interface AntiguedadInfo {
+  texto: string;
+  isBadgeSinFecha: boolean;
+  meses: number;
+}
+
+export const getAntiguedadInfo = (
+  fechaIngreso?: string | null,
+  fechaEgreso?: string | null,
+  estado?: string | null,
+  diasEnEmpresa?: number | null,
+  mesesEnEmpresa?: number | null
+): AntiguedadInfo => {
+  const est = (estado || "").toUpperCase();
+  const fEgreso = (fechaEgreso || "").trim();
+
+  // Regla legacy: si está inactivo y no tiene fecha de egreso válida
+  if (
+    est === "INACTIVO" &&
+    (!fEgreso ||
+      fEgreso.includes("1970-01-01") ||
+      fEgreso.includes("0000-00-00") ||
+      fEgreso.toLowerCase() === "null" ||
+      fEgreso.toLowerCase() === "undefined")
+  ) {
+    return {
+      texto: "Sin fecha egreso",
+      isBadgeSinFecha: true,
+      meses: 0,
+    };
+  }
+
+  if (!fechaIngreso || fechaIngreso.includes("0000-00-00") || fechaIngreso.includes("1970-01-01")) {
+    return {
+      texto: "Sin fecha ingreso",
+      isBadgeSinFecha: true,
+      meses: 0,
+    };
+  }
+
+  let meses = 0;
+  if (mesesEnEmpresa !== undefined && mesesEnEmpresa !== null) {
+    meses = mesesEnEmpresa;
+  } else if (diasEnEmpresa !== undefined && diasEnEmpresa !== null) {
+    meses = Math.floor(diasEnEmpresa / 30);
+  } else {
+    try {
+      const inicio = new Date(fechaIngreso);
+      const fin = est === "ACTIVO" || !fEgreso ? new Date() : new Date(fEgreso);
+      const diffDays = Math.max(0, Math.floor((fin.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24)));
+      meses = Math.floor(diffDays / 30);
+    } catch {
+      meses = 0;
+    }
+  }
+
+  return {
+    texto: `${meses} ${meses === 1 ? "mes" : "meses"}`,
+    isBadgeSinFecha: false,
+    meses,
+  };
+};
+
 export const personalCsvColumns: CsvColumn<EmpleadoPerfilItem>[] = [
   { header: "ID", accessor: (row) => row.id },
   { header: "Tipo Documento", accessor: (row) => row.tipo_documento },
   { header: "Documento", accessor: (row) => row.numero_documento },
   { header: "Colaborador", accessor: (row) => row.nombre_completo },
+  { header: "Área", accessor: (row) => row.area || "" },
+  { header: "Carpeta", accessor: (row) => row.carpeta || "" },
   { header: "Cargo", accessor: (row) => row.cargo || "" },
   {
     header: "Sede / Ciudad",
@@ -53,7 +118,17 @@ export const personalCsvColumns: CsvColumn<EmpleadoPerfilItem>[] = [
   { header: "Móvil", accessor: (row) => row.movil || "" },
   { header: "Placa", accessor: (row) => row.placa_vehiculo || "" },
   { header: "Actas Dotación", accessor: (row) => row.cnt_dotacion ?? 0 },
-  { header: "Días en Empresa", accessor: (row) => row.dias_en_empresa },
+  {
+    header: "Antigüedad",
+    accessor: (row) =>
+      getAntiguedadInfo(
+        row.fecha_ingreso,
+        row.fecha_egreso,
+        row.estado,
+        row.dias_en_empresa,
+        row.meses_en_empresa
+      ).texto,
+  },
   { header: "Fecha Ingreso", accessor: (row) => row.fecha_ingreso || "" },
 ];
 
@@ -221,6 +296,30 @@ export const getPersonalColumns = ({
     },
   },
   {
+    id: "area_carpeta",
+    header: "ÁREA / CARPETA",
+    accessorKey: "area",
+    filterFn: (row, _columnId, filterValue) => {
+      const search = String(filterValue).toLowerCase();
+      const area = (row.original.area || "").toLowerCase();
+      const carpeta = (row.original.carpeta || "").toLowerCase();
+      return area.includes(search) || carpeta.includes(search);
+    },
+    cell: ({ row }) => {
+      const emp = row.original;
+      return (
+        <div>
+          <p className="font-semibold text-gray-800 dark:text-gray-200">
+            {emp.area || "Sin área"}
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            {emp.carpeta || "Sin carpeta"}
+          </p>
+        </div>
+      );
+    },
+  },
+  {
     id: "cargo",
     header: "CARGO / CIUDAD",
     accessorKey: "cargo",
@@ -341,22 +440,50 @@ export const getPersonalColumns = ({
   {
     id: "antiguedad",
     header: "ANTIGÜEDAD",
-    accessorKey: "dias_en_empresa",
+    accessorKey: "meses_en_empresa",
     filterFn: (row, _columnId, filterValue) => {
       const search = String(filterValue).toLowerCase();
-      const dias = String(row.original.dias_en_empresa);
-      const fecha = (row.original.fecha_ingreso || "").toLowerCase();
-      return dias.includes(search) || fecha.includes(search);
+      const emp = row.original;
+      const info = getAntiguedadInfo(
+        emp.fecha_ingreso,
+        emp.fecha_egreso,
+        emp.estado,
+        emp.dias_en_empresa,
+        emp.meses_en_empresa
+      );
+      const mesesStr = String(info.meses);
+      const textoStr = info.texto.toLowerCase();
+      const fecha = (emp.fecha_ingreso || "").toLowerCase();
+      return (
+        mesesStr.includes(search) ||
+        textoStr.includes(search) ||
+        fecha.includes(search)
+      );
     },
     cell: ({ row }) => {
       const emp = row.original;
+      const info = getAntiguedadInfo(
+        emp.fecha_ingreso,
+        emp.fecha_egreso,
+        emp.estado,
+        emp.dias_en_empresa,
+        emp.meses_en_empresa
+      );
       return (
         <div>
-          <p className="text-gray-700 dark:text-gray-300 font-medium">
-            {emp.dias_en_empresa} días
-          </p>
-          <p className="text-[11px] text-gray-400">
-            Desde: {emp.fecha_ingreso || "N/A"}
+          {info.isBadgeSinFecha ? (
+            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+              {info.texto}
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+              {info.texto}
+            </span>
+          )}
+          <p className="mt-0.5 text-[11px] text-gray-400">
+            {emp.estado === "INACTIVO" && emp.fecha_egreso
+              ? `Egreso: ${emp.fecha_egreso}`
+              : `Desde: ${emp.fecha_ingreso || "N/A"}`}
           </p>
         </div>
       );

@@ -8,6 +8,7 @@ import DatePicker from "@/components/form/date-picker";
 import { EmpleadoPerfilItem, EmpleadoPerfilCompleto } from "@/types/empleado";
 import { personalService } from "../services/personalService";
 import { usePersonalStore } from "../store/usePersonalStore";
+import { SearchableSupervisorSelect } from "./SearchableSupervisorSelect";
 
 interface Props {
   empleado: EmpleadoPerfilItem | EmpleadoPerfilCompleto;
@@ -46,12 +47,10 @@ export const ModalEntregaGH: React.FC<Props> = ({
 
   useEffect(() => {
     if (isOpen) {
-      if (supervisores.length === 0) {
-        fetchSupervisores();
-      }
+      fetchSupervisores();
       setMovil(currentMovil);
     }
-  }, [isOpen, supervisores.length, fetchSupervisores, currentMovil]);
+  }, [isOpen, fetchSupervisores, currentMovil]);
 
   if (!isOpen) return null;
 
@@ -133,24 +132,15 @@ export const ModalEntregaGH: React.FC<Props> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-              Líder / Supervisor Operativo Destino <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={liderId}
-              onChange={(e) => setLiderId(e.target.value ? Number(e.target.value) : "")}
-              required
-              className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-            >
-              <option value="">Seleccione el supervisor operativo...</option>
-              {supervisores.map((sup) => (
-                <option key={sup.id} value={sup.id}>
-                  {(sup.nombre || (sup as any).nombre_completo)} {sup.cargo ? `(${sup.cargo})` : ""} {sup.movil ? `- ${sup.movil}` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableSupervisorSelect
+            label="Líder / Supervisor Operativo Destino"
+            value={liderId ? String(liderId) : ""}
+            onChange={(val) => setLiderId(val ? Number(val) : "")}
+            supervisores={supervisores}
+            areaFiltro={(empleado as any)?.laboral?.area || (empleado as any)?.area || undefined}
+            placeholder="Buscar líder por cargo, nombre o cédula..."
+            emptyText="Seleccione el supervisor operativo..."
+          />
 
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">

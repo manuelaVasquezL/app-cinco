@@ -2,12 +2,14 @@ import re
 import logging
 import calendar
 from datetime import timedelta, date
+from typing import Optional, Dict, Any, List, Union
 from django.db import transaction, connection, connections
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 
 from apps.empleados.models import (
+    Empleado,
     EmpleadoPerfil,
     EmpleadoLaboral,
     EmpleadoContacto,
@@ -18,11 +20,14 @@ from apps.empleados.models import (
     EmpleadoMovilidad,
     EmpleadoCuentaBancaria,
     EmpleadoAuditoriaLog,
+    EmpleadoContactoEmergencia,
+    EmpleadoPersonaACargo,
+    EmpleadoDocumentoAdjunto,
 )
 
 logger = logging.getLogger(__name__)
 
-User = get_user_model()
+User: Any = get_user_model()
 
 
 class EmpleadoWorkflowService:
@@ -30,6 +35,20 @@ class EmpleadoWorkflowService:
     Capa de servicio y lógica de dominio para la gestión del ciclo de vida
     del empleado, cuadrillas, flota, inducción y auditoría.
     """
+
+    @staticmethod
+    def parse_date(val):
+        if not val:
+            return None
+        from datetime import datetime as dt_cls, date as d_cls
+        if isinstance(val, dt_cls):
+            return val.date()
+        if isinstance(val, d_cls):
+            return val
+        try:
+            return dt_cls.strptime(str(val)[:10], '%Y-%m-%d').date()
+        except Exception:
+            return None
 
     @staticmethod
     def validar_fecha_ingreso(fecha_ingreso):
@@ -44,9 +63,9 @@ class EmpleadoWorkflowService:
                 from datetime import datetime
                 fecha_ingreso = datetime.strptime(fecha_ingreso[:10], '%Y-%m-%d').date()
             except Exception:
-                pass
+                raise ValidationError("Formato de fecha de ingreso inválido. Use AAAA-MM-DD.")
         fecha_limite = timezone.now().date() + timedelta(days=5)
-        if fecha_ingreso > fecha_limite:
+        if isinstance(fecha_ingreso, date) and fecha_ingreso > fecha_limite:
             raise ValidationError(
                 "La fecha de ingreso no puede ser mayor a 5 días posteriores a hoy."
             )
@@ -63,7 +82,7 @@ class EmpleadoWorkflowService:
         if isinstance(fecha, str):
             try:
                 from datetime import datetime
-                fecha = datetime.strptime(str(fecha)[:10], '%Y-%m-%d').date()
+                fecha = datetime.strptime(fecha[:10], '%Y-%m-%d').date()
             except Exception:
                 return None
 
@@ -86,7 +105,7 @@ class EmpleadoWorkflowService:
         """
         if not nro:
             return ""
-        limpio = re.sub(r'\D', '', str(nro))
+        limpio = re.sub(r'\D', '', nro)
         return limpio.zfill(12)
 
     @staticmethod
@@ -130,13 +149,13 @@ class EmpleadoWorkflowService:
     @staticmethod
     def registrar_auditoria(
         empleado: EmpleadoPerfil,
-        usuario: User,
-        accion: str,
-        tabla_afectada: str,
-        datos_anteriores: dict = None,
-        datos_nuevos: dict = None,
-        ip_origen: str = None
-    ) -> EmpleadoAuditoriaLog:
+        usuario: Optional[Any] = None,
+        accion: str = "",
+        tabla_afectada: str = "",
+        datos_anteriores: Optional[Dict[str, Any]] = None,
+        datos_nuevos: Optional[Dict[str, Any]] = None,
+        ip_origen: Optional[str] = None
+    ) -> Optional[EmpleadoAuditoriaLog]:
         """
         Registra una traza de auditoría transaccional en empleados_auditoria_log.
         Fallback al usuario del perfil si no se provee operador explícito.
@@ -156,7 +175,7 @@ class EmpleadoWorkflowService:
 
     @classmethod
     @transaction.atomic
-    def crear_empleado(cls, data: dict, user_creator: User, ip_address: str = None) -> EmpleadoPerfil:
+    def crear_empleado(cls, data: dict, user_creator: Optional[Any] = None, ip_address: Optional[str] = None) -> EmpleadoPerfil:
         """
         Crea un nuevo colaborador:
         1. Aprovisiona obligatoriamente la cuenta de usuario en auth_user.
@@ -200,23 +219,18 @@ class EmpleadoWorkflowService:
         if not apellidos:
             raise ValidationError("Los apellidos del colaborador son obligatorios.")
 
-        if isinstance(fecha_ingreso, str):
-            try:
-                from datetime import datetime
-                fecha_ingreso = datetime.strptime(fecha_ingreso[:10], '%Y-%m-%d').date()
-            except Exception:
-                pass
+        fecha_ingreso = cls.parse_date(fecha_ingreso)
 
         # 2. Perfil
         perfil = EmpleadoPerfil.objects.create(
             user=user,
             tipo_documento=data.get('tipo_documento', 'CC'),
             numero_documento=doc,
-            fecha_expedicion_documento=data.get('fecha_expedicion_documento'),
+            fecha_expedicion_documento=cls.parse_date(data.get('fecha_expedicion_documento')),
             pasaporte=data.get('pasaporte'),
             nombres=nombres,
             apellidos=apellidos,
-            fecha_nacimiento=data.get('fecha_nacimiento'),
+            fecha_nacimiento=cls.parse_date(data.get('fecha_nacimiento')),
             genero=data.get('genero'),
             estado_civil=data.get('estado_civil'),
             foto_url=data.get('foto_url', 'photos/Default.png'),
@@ -247,17 +261,21 @@ class EmpleadoWorkflowService:
             funcion_cargo=laboral_data.get('funcion_cargo'),
             tipo_labor=laboral_data.get('tipo_labor', 'OPERATIVO'),
             zona_nodo=laboral_data.get('zona_nodo'),
-            supervisor_id=laboral_data.get('supervisor_id'),
-            padrino_id=laboral_data.get('padrino_id'),
+            supervisor_id=laboral_data.get('supervisor_id') or laboral_data.get('supervisor'),
+            padrino_id=laboral_data.get('padrino_id') or laboral_data.get('padrino'),
             formador=laboral_data.get('formador'),
             grupo_comisiones=laboral_data.get('grupo_comisiones'),
             nivel_estudio=laboral_data.get('nivel_estudio'),
             fecha_ingreso=fecha_ingreso,
-            etapa_induccion='EN_FORMACION',
-            practica_lectiva_inicio=p_lect_inicio,
-            practica_lectiva_fin=p_lect_fin,
-            practica_productiva_inicio=p_prod_inicio,
-            practica_productiva_fin=p_prod_fin,
+            etapa_induccion=laboral_data.get('etapa_induccion', 'EN_FORMACION'),
+            practica_lectiva_inicio=cls.parse_date(p_lect_inicio),
+            practica_lectiva_fin=cls.parse_date(p_lect_fin),
+            practica_productiva_inicio=cls.parse_date(p_prod_inicio),
+            practica_productiva_fin=cls.parse_date(p_prod_fin),
+            tipo_contrato=laboral_data.get('tipo_contrato'),
+            duracion_contrato=laboral_data.get('duracion_contrato'),
+            fecha_inicio_contrato=cls.parse_date(laboral_data.get('fecha_inicio_contrato')),
+            fecha_fin_contrato=cls.parse_date(laboral_data.get('fecha_fin_contrato')),
         )
 
         # 4. Satélites iniciales opcionales
@@ -297,7 +315,7 @@ class EmpleadoWorkflowService:
         EmpleadoDotacionActivos.objects.create(
             empleado=perfil,
             tiene_carnet=dot_data.get('tiene_carnet', False),
-            fecha_entrega_carnet=dot_data.get('fecha_entrega_carnet'),
+            fecha_entrega_carnet=cls.parse_date(dot_data.get('fecha_entrega_carnet')),
             talla_camisa=dot_data.get('talla_camisa'),
             talla_pantalon=dot_data.get('talla_pantalon'),
             talla_calzado=dot_data.get('talla_calzado'),
@@ -310,10 +328,33 @@ class EmpleadoWorkflowService:
             empleado=perfil,
             permiso_trabajo=sst_data.get('permiso_trabajo'),
             certificado_alturas_url=sst_data.get('certificado_alturas_url'),
-            vencimiento_alturas=sst_data.get('vencimiento_alturas'),
+            vencimiento_alturas=cls.parse_date(sst_data.get('vencimiento_alturas')),
             certificado_tecnico_url=sst_data.get('certificado_tecnico_url'),
-            vencimiento_tecnico=sst_data.get('vencimiento_tecnico'),
+            vencimiento_tecnico=cls.parse_date(sst_data.get('vencimiento_tecnico')),
         )
+
+        # Contactos de emergencia iniciales
+        for ce in data.get('contactos_emergencia', []):
+            if isinstance(ce, dict) and (ce.get('nombre_completo') or ce.get('nombre')):
+                EmpleadoContactoEmergencia.objects.create(
+                    empleado=perfil,
+                    nombre_completo=(ce.get('nombre_completo') or ce.get('nombre', '')).strip().upper()[:150],
+                    parentesco=(ce.get('parentesco') or 'Contacto').strip().upper()[:50],
+                    telefono=(ce.get('telefono') or 'N/A').strip()[:50],
+                    es_principal=bool(ce.get('es_principal', False)),
+                )
+
+        # Personas a cargo iniciales
+        for pac in data.get('personas_a_cargo', []):
+            if isinstance(pac, dict) and (pac.get('nombre_completo') or pac.get('nombre')):
+                EmpleadoPersonaACargo.objects.create(
+                    empleado=perfil,
+                    nombre_completo=(pac.get('nombre_completo') or pac.get('nombre', '')).strip().upper()[:150],
+                    parentesco=(pac.get('parentesco') or 'Hijo(a)').strip().upper()[:50],
+                    tipo_documento=pac.get('tipo_documento') or 'RC',
+                    numero_documento=pac.get('numero_documento') or '',
+                    fecha_nacimiento=cls.parse_date(pac.get('fecha_nacimiento')),
+                )
 
         # 5. Auditoría
         cls.registrar_auditoria(
@@ -349,8 +390,8 @@ class EmpleadoWorkflowService:
         cls,
         empleado_id: int,
         supervisor_recibe_id: int,
-        user_operator: User,
-        ip_address: str = None
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ) -> EmpleadoLaboral:
         """
         Procedimiento Operativo: Entrega de Personal de GH (Sección 6 del Doc)
@@ -376,7 +417,7 @@ class EmpleadoWorkflowService:
         laboral.supervisor = supervisor_recibe
         laboral.etapa_induccion = 'ENTREGADO'
         laboral.fecha_entrega_area = timezone.now().date()
-        if hasattr(user_operator, 'empleado_perfil'):
+        if user_operator and getattr(user_operator, 'empleado_perfil', None):
             laboral.entregado_por = user_operator.empleado_perfil
         laboral.save()
 
@@ -405,12 +446,12 @@ class EmpleadoWorkflowService:
     def asignar_placa_vehiculo(
         cls,
         empleado_id: int,
-        placa: str,
+        placa: Optional[str] = None,
         conduce: bool = False,
         medio_transporte: str = 'NINGUNO',
         modelo_vehiculo: str = '',
-        user_operator: User = None,
-        ip_address: str = None
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ) -> EmpleadoMovilidad:
         """
         Equivale a la acción legacy editar_placa (Líneas 1051-1135 de infraestructura_cinco_sas.php).
@@ -489,11 +530,11 @@ class EmpleadoWorkflowService:
     def sincronizar_placa_legacy_transporte(
         cls,
         empleado_perfil: EmpleadoPerfil,
-        nueva_placa: str | None,
+        nueva_placa: Optional[str] = None,
         conduce: bool | str = False,
         medio_transporte: str = 'NINGUNO',
-        placa_anterior: str | None = None,
-        user_operator: User = None
+        placa_anterior: Optional[str] = None,
+        user_operator: Optional[Any] = None
     ) -> dict:
         """
         Sincronización cruzada con la base de datos Legacy 'azul' (Punto 2.3):
@@ -513,23 +554,23 @@ class EmpleadoWorkflowService:
             'errores': []
         }
 
-        cedula = str(empleado_perfil.numero_documento or '').strip()
+        cedula = (empleado_perfil.numero_documento or '').strip()
         if not cedula:
             resultado['errores'].append("El empleado no posee número de documento.")
             return resultado
 
-        edit_user = str(user_operator.username if user_operator else 'SISTEMA').strip()
+        edit_user = (user_operator.username if user_operator else 'SISTEMA').strip()
         placa_clean = nueva_placa.strip().upper() if nueva_placa else ''
         placa_ant_clean = placa_anterior.strip().upper() if placa_anterior else ''
 
         conduce_val = 'SI' if (conduce is True or str(conduce).strip().upper() in ('SI', '1', 'TRUE')) else 'NO'
-        transporte_val = str(medio_transporte or 'NINGUNO').strip().upper()
+        transporte_val = (medio_transporte or 'NINGUNO').strip().upper()
 
         laboral = getattr(empleado_perfil, 'laboral', None)
         if not laboral:
             laboral = EmpleadoLaboral.objects.filter(empleado=empleado_perfil).first()
-        area = str(laboral.area or '').strip() if laboral else ''
-        carpeta = str(laboral.carpeta or '').strip() if laboral else ''
+        area = (laboral.area or '').strip() if laboral else ''
+        carpeta = (laboral.carpeta or '').strip() if laboral else ''
 
         try:
             conn_azul = connections['azul']
@@ -687,8 +728,8 @@ class EmpleadoWorkflowService:
     def sincronizar_herencia_auxiliar_desde_tecnico(
         cls,
         auxiliar_perfil: EmpleadoPerfil,
-        user_operator: User = None,
-        ip_address: str = None
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ) -> dict:
         """
         Replica la regla legacy de auto-herencia de cuadrilla para auxiliares
@@ -793,9 +834,9 @@ class EmpleadoWorkflowService:
         cls,
         tecnico_perfil: EmpleadoPerfil,
         nueva_movil: str,
-        movil_anterior: str = None,
-        user_operator: User = None,
-        ip_address: str = None
+        movil_anterior: Optional[str] = None,
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ):
         """
         Replica la regla legacy de cuadrillas (Líneas 3050-3158 de infraestructura_cinco_sas.php):
@@ -904,8 +945,8 @@ class EmpleadoWorkflowService:
         fecha_egreso,
         motivo: str,
         motivo_real: str = '',
-        user_operator: User = None,
-        ip_address: str = None
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ) -> EmpleadoPerfil:
         """
         Equivale a send_desactivar_empleado (Lineas 622-823 de infraestructura_cinco_sas.php).
@@ -922,17 +963,19 @@ class EmpleadoWorkflowService:
 
         movil_antes = laboral.movil or ''
 
+        user_auth: Any = perfil.user
         datos_antes = {
             'estado': perfil.estado,
-            'is_active': perfil.user.is_active,
+            'is_active': bool(user_auth and getattr(user_auth, 'is_active', False)),
             'movil': laboral.movil,
             'placa_vehiculo': movilidad.placa_vehiculo,
         }
 
         # 1. Desactivacion de cuenta e identidad
         perfil.estado = 'INACTIVO'
-        perfil.user.is_active = False
-        perfil.user.save()
+        if user_auth:
+            user_auth.is_active = False
+            user_auth.save()
         perfil.save()
 
         # 2. Desactivacion laboral
@@ -1047,9 +1090,9 @@ class EmpleadoWorkflowService:
         ).order_by('-created_at').first()
 
         if log_desactivacion and log_desactivacion.datos_anteriores:
-            movil_ant = log_desactivacion.datos_anteriores.get('movil')
-            if movil_ant and 'FUERA DE OPERACION' not in str(movil_ant).upper():
-                return str(movil_ant).strip()
+            movil_ant = str(log_desactivacion.datos_anteriores.get('movil') or '').strip()
+            if movil_ant and 'FUERA DE OPERACION' not in movil_ant.upper():
+                return movil_ant
 
         # 2. Si no está en el log de desactivación, buscar en logs históricos previos
         logs_anteriores = EmpleadoAuditoriaLog.objects.filter(
@@ -1058,13 +1101,13 @@ class EmpleadoWorkflowService:
 
         for log in logs_anteriores:
             if log.datos_anteriores and 'movil' in log.datos_anteriores:
-                m = log.datos_anteriores.get('movil')
-                if m and 'FUERA' not in str(m).upper() and str(m).strip():
-                    return str(m).strip()
+                m = str(log.datos_anteriores.get('movil') or '').strip()
+                if m and 'FUERA' not in m.upper():
+                    return m
             if log.datos_nuevos and 'movil' in log.datos_nuevos:
-                m = log.datos_nuevos.get('movil')
-                if m and 'FUERA' not in str(m).upper() and str(m).strip():
-                    return str(m).strip()
+                m = str(log.datos_nuevos.get('movil') or '').strip()
+                if m and 'FUERA' not in m.upper():
+                    return m
 
         return '1 - SIN ASIGNAR'
 
@@ -1073,10 +1116,10 @@ class EmpleadoWorkflowService:
     def reactivar_empleado(
         cls,
         empleado_id: int,
-        movil_inicial: str = None,
+        movil_inicial: Optional[str] = None,
         observaciones: str = '',
-        user_operator: User = None,
-        ip_address: str = None
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ) -> EmpleadoPerfil:
         """
         Equivale a reactivar (Líneas 824-981 de infraestructura_cinco_sas.php).
@@ -1089,8 +1132,10 @@ class EmpleadoWorkflowService:
         laboral = perfil.laboral
 
         perfil.estado = 'ACTIVO'
-        perfil.user.is_active = True
-        perfil.user.save()
+        user_auth: Any = perfil.user
+        if user_auth:
+            user_auth.is_active = True
+            user_auth.save()
         perfil.save()
 
         laboral.fecha_egreso = None
@@ -1098,10 +1143,10 @@ class EmpleadoWorkflowService:
         laboral.motivo_egreso_real = None
 
         # Si no se pasó un móvil o está vacío / None, recuperar del historial (Regla Legacy 2.7)
-        if not movil_inicial or not str(movil_inicial).strip():
+        if not movil_inicial or not movil_inicial.strip():
             movil_final = cls.obtener_movil_previa_desactivacion(empleado_id)
         else:
-            movil_final = str(movil_inicial).strip()
+            movil_final = movil_inicial.strip()
 
         laboral.movil = movil_final or '1 - SIN ASIGNAR'
         laboral.save()
@@ -1156,7 +1201,6 @@ class EmpleadoWorkflowService:
         except Exception as e:
             logger.error(f"Error al encolar notificación de reactivación para empleado #{perfil.id}: {e}", exc_info=True)
 
-        perfil.movil_restaurado = laboral.movil
         return perfil
 
     @classmethod
@@ -1164,11 +1208,11 @@ class EmpleadoWorkflowService:
     def solicitar_cambio_area(
         cls,
         empleado_id: int,
-        solicitante_usuario,
-        nueva_area: str,
-        nueva_carpeta: str,
-        motivo: str,
-        ip_address: str = None
+        solicitante_usuario: Optional[Any] = None,
+        nueva_area: str = '',
+        nueva_carpeta: str = '',
+        motivo: str = '',
+        ip_address: Optional[str] = None
     ):
         """
         Equivale a enviar_solicitud_cambio_area (Líneas 678-815 de infraestructura_cinco_sas.php).
@@ -1204,6 +1248,52 @@ class EmpleadoWorkflowService:
         )
 
     @classmethod
+    def obtener_catalogo_areas_carpetas(cls) -> dict:
+        """
+        Retorna el catálogo agrupado de áreas y sus correspondientes carpetas operativas
+        consultando exclusivamente la tabla EmpleadoLaboral en la base de datos default.
+        Utiliza caché de Django para respuestas de alta velocidad.
+        """
+        from django.core.cache import cache
+        cache_key = 'empleados_catalogo_areas_carpetas_laboral'
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        from collections import defaultdict
+        mapping = defaultdict(set)
+
+        # Consultar exclusivamente de EmpleadoLaboral (BD default)
+        pares_laboral = EmpleadoLaboral.objects.exclude(
+            area__isnull=True
+        ).exclude(
+            area=''
+        ).values_list('area', 'carpeta').distinct()
+
+        for a, c in pares_laboral:
+            a_clean = (a or '').strip().upper()
+            c_clean = (c or '').strip().upper()
+            if a_clean and a_clean not in ('-1', '0', 'N/A', 'NONE'):
+                if c_clean and c_clean not in ('-1', '0', 'N/A', 'NONE'):
+                    mapping[a_clean].add(c_clean)
+                elif a_clean not in mapping:
+                    mapping[a_clean] = set()
+
+        areas_ordenadas = sorted(list(mapping.keys()))
+        carpetas_por_area = {
+            area: sorted(list(mapping[area]))
+            for area in areas_ordenadas
+        }
+
+        data = {
+            'areas': areas_ordenadas,
+            'carpetas_por_area': carpetas_por_area,
+        }
+
+        cache.set(cache_key, data, timeout=3600)
+        return data
+
+    @classmethod
     @transaction.atomic
     def gestionar_cuenta_bancaria(
         cls,
@@ -1214,9 +1304,9 @@ class EmpleadoWorkflowService:
         es_nomina: bool = True,
         titular: str = '',
         cc_titular: str = '',
-        cuenta_id: int = None,
-        user_operator: User = None,
-        ip_address: str = None
+        cuenta_id: Optional[int] = None,
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ) -> EmpleadoCuentaBancaria:
         """
         Equivale a save_cuenta_bank (Líneas 282-388 de infraestructura_cinco_sas.php).
@@ -1283,9 +1373,9 @@ class EmpleadoWorkflowService:
         parentesco: str,
         telefono: str,
         es_principal: bool = False,
-        contacto_id: int = None,
-        user_operator: User = None,
-        ip_address: str = None
+        contacto_id: Optional[int] = None,
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ):
         """
         Alta o edición de contacto de emergencia (Tabla 9: empleados_contactos_emergencia).
@@ -1350,8 +1440,8 @@ class EmpleadoWorkflowService:
         cls,
         empleado_id: int,
         contacto_id: int,
-        user_operator: User = None,
-        ip_address: str = None
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
     ):
         """
         Elimina un contacto de emergencia y genera traza de auditoría.
@@ -1381,11 +1471,121 @@ class EmpleadoWorkflowService:
 
     @classmethod
     @transaction.atomic
+    def gestionar_persona_a_cargo(
+        cls,
+        empleado_id: int,
+        nombre_completo: str,
+        parentesco: str,
+        tipo_documento: Optional[str] = None,
+        numero_documento: Optional[str] = None,
+        fecha_nacimiento: Optional[Any] = None,
+        persona_id: Optional[int] = None,
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
+    ):
+        """
+        Alta o edición de persona a cargo / beneficiario (Tabla 10: empleados_personas_a_cargo).
+        """
+        from apps.empleados.models import EmpleadoPersonaACargo
+        perfil = EmpleadoPerfil.objects.get(id=empleado_id)
+
+        nombre_completo = (nombre_completo or '').strip().upper()
+        parentesco = (parentesco or '').strip().upper()
+        tipo_documento = (tipo_documento or '').strip().upper() or None
+        numero_documento = (numero_documento or '').strip() or None
+
+        if persona_id:
+            persona = EmpleadoPersonaACargo.objects.get(id=persona_id, empleado_id=empleado_id)
+            datos_antes = {
+                'id': persona.id,
+                'nombre_completo': persona.nombre_completo,
+                'parentesco': persona.parentesco,
+                'tipo_documento': persona.tipo_documento,
+                'numero_documento': persona.numero_documento,
+                'fecha_nacimiento': str(persona.fecha_nacimiento) if persona.fecha_nacimiento else None,
+            }
+            persona.nombre_completo = nombre_completo
+            persona.parentesco = parentesco
+            persona.tipo_documento = tipo_documento
+            persona.numero_documento = numero_documento
+            persona.fecha_nacimiento = fecha_nacimiento
+            persona.save()
+            accion = 'ACTUALIZACION_PERSONA_A_CARGO'
+        else:
+            datos_antes = None
+            persona = EmpleadoPersonaACargo.objects.create(
+                empleado=perfil,
+                nombre_completo=nombre_completo,
+                parentesco=parentesco,
+                tipo_documento=tipo_documento,
+                numero_documento=numero_documento,
+                fecha_nacimiento=fecha_nacimiento,
+            )
+            accion = 'CREACION_PERSONA_A_CARGO'
+
+        if user_operator:
+            cls.registrar_auditoria(
+                empleado=perfil,
+                usuario=user_operator,
+                accion=accion,
+                tabla_afectada='empleados_personas_a_cargo',
+                datos_anteriores=datos_antes,
+                datos_nuevos={
+                    'id': persona.id,
+                    'nombre_completo': nombre_completo,
+                    'parentesco': parentesco,
+                    'tipo_documento': tipo_documento,
+                    'numero_documento': numero_documento,
+                    'fecha_nacimiento': str(fecha_nacimiento) if fecha_nacimiento else None,
+                },
+                ip_origen=ip_address
+            )
+
+        return persona
+
+    @classmethod
+    @transaction.atomic
+    def eliminar_persona_a_cargo(
+        cls,
+        empleado_id: int,
+        persona_id: int,
+        user_operator: Optional[Any] = None,
+        ip_address: Optional[str] = None
+    ):
+        """
+        Elimina una persona a cargo y genera traza de auditoría.
+        """
+        from apps.empleados.models import EmpleadoPersonaACargo
+        perfil = EmpleadoPerfil.objects.get(id=empleado_id)
+        persona = EmpleadoPersonaACargo.objects.get(id=persona_id, empleado_id=empleado_id)
+        datos_antes = {
+            'id': persona.id,
+            'nombre_completo': persona.nombre_completo,
+            'parentesco': persona.parentesco,
+            'tipo_documento': persona.tipo_documento,
+            'numero_documento': persona.numero_documento,
+            'fecha_nacimiento': str(persona.fecha_nacimiento) if persona.fecha_nacimiento else None,
+        }
+        persona.delete()
+
+        if user_operator:
+            cls.registrar_auditoria(
+                empleado=perfil,
+                usuario=user_operator,
+                accion='ELIMINACION_PERSONA_A_CARGO',
+                tabla_afectada='empleados_personas_a_cargo',
+                datos_anteriores=datos_antes,
+                datos_nuevos=None,
+                ip_origen=ip_address
+            )
+
+    @classmethod
+    @transaction.atomic
     def restablecer_contrasena(
         cls,
         perfil: EmpleadoPerfil,
-        operador: User,
-        ip_origen: str = None
+        operador: Optional[Any] = None,
+        ip_origen: Optional[str] = None
     ) -> dict:
         """
         Regla Legacy: restaurarcontra (Línea 2009 de infraestructura_cinco_sas.php).
@@ -1463,8 +1663,9 @@ class EmpleadoWorkflowService:
 
             for comp in comprobantes_locales:
                 subido_nombre = ''
-                if comp.subido_por:
-                    subido_nombre = comp.subido_por.get_full_name() or comp.subido_por.username
+                subido_usr: Any = comp.subido_por
+                if subido_usr:
+                    subido_nombre = subido_usr.get_full_name() or getattr(subido_usr, 'username', '')
 
                 actas.append({
                     'id': f"app_{comp.id}",
@@ -1482,7 +1683,7 @@ class EmpleadoWorkflowService:
             logger.warning(f"Error al consultar comprobantes locales de dotación: {e}")
 
         # 2. Actas históricas del legacy (sst_base_entrega_dotacion en azul)
-        doc_limpio = str(numero_documento).strip() if numero_documento else ''
+        doc_limpio = numero_documento.strip() if numero_documento else ''
         if doc_limpio:
             try:
                 conn_azul = connections['azul']
@@ -1581,4 +1782,316 @@ class EmpleadoWorkflowService:
             'cnt_actas': len(actas),
             'cnt_despachos': len(despachos),
         }
+
+    @classmethod
+    def sincronizar_desde_legacy(cls, emp_or_id):
+        """
+        Sincroniza bajo demanda un colaborador desde la tabla legacy 'cinco_base_de_personal'
+        (base 'azul') hacia el modelo relacional normalizado 'EmpleadoPerfil' y sus satélites
+        en la base 'default'.
+        Soporta búsqueda por ID de base de datos, cédula o código SAP.
+        """
+        from apps.empleados.models import Empleado
+        emp = None
+        if isinstance(emp_or_id, Empleado):
+            emp = emp_or_id
+        else:
+            val = str(emp_or_id).strip()
+            if not val or val.lower() in ('undefined', 'null', 'none', ''):
+                return None
+            try:
+                if val.isdigit():
+                    emp = Empleado.objects.filter(id=int(val)).first()
+                if not emp:
+                    emp = Empleado.objects.filter(cedula=val).first()
+                if not emp and val.isdigit():
+                    emp = Empleado.objects.filter(codigo_sap=val).first()
+            except Exception as e:
+                logger.warning(f"Error consultando Empleado legacy #{val}: {e}")
+                return None
+
+        if not emp:
+            return None
+
+        cedula_str = (emp.cedula or '').strip()
+
+        # 1. Buscar si ya existe EmpleadoPerfil por cédula o id
+        perfil = EmpleadoPerfil.objects.filter(numero_documento=cedula_str).first()
+        if not perfil and emp.id:
+            perfil = EmpleadoPerfil.objects.filter(id=emp.id).first()
+
+        # 2. Asegurar existencia de usuario en auth_user
+        user = User.objects.filter(username=cedula_str).first()
+        if not user and emp.id:
+            user = User.objects.filter(id=emp.id).first()
+        if not user:
+            user = User.objects.create_user(
+                username=cedula_str,
+                first_name=(emp.nombre or '')[:30].strip().upper(),
+                last_name=(emp.apellido or '')[:30].strip().upper(),
+                email=emp.correo_electronico_personal or emp.email_personal or '',
+                is_active=((emp.estado or '').strip().upper() == 'ACTIVO')
+            )
+
+        datos = emp.datos if isinstance(emp.datos, dict) else {}
+
+        def _clean_str(val, max_len=None):
+            if val is None:
+                return ''
+            s = str(val).strip()
+            if s.lower() in ('none', 'null', 'undefined', 'n/a'):
+                return ''
+            return s[:max_len] if max_len else s
+
+        def _parse_date(val):
+            if not val:
+                return None
+            from datetime import datetime as dt_cls, date as d_cls
+            if isinstance(val, dt_cls):
+                return val.date()
+            if isinstance(val, d_cls):
+                return val
+            try:
+                return dt_cls.strptime(str(val)[:10], '%Y-%m-%d').date()
+            except Exception:
+                return None
+
+        # 3. Mapeo de identidad
+        genero = 'OTRO'
+        gen_raw = _clean_str(emp.genero).upper()
+        if gen_raw in ['M', 'MASCULINO']:
+            genero = 'MASCULINO'
+        elif gen_raw in ['F', 'FEMENINO']:
+            genero = 'FEMENINO'
+
+        estado_civil = _clean_str(datos.get('estado_civil', 'SOLTERO')).upper()
+        if estado_civil not in ['SOLTERO', 'CASADO', 'UNION_LIBRE', 'DIVORCIADO', 'VIUDO']:
+            estado_civil = 'SOLTERO'
+
+        estado = _clean_str(emp.estado or 'ACTIVO').upper()
+        if estado not in ['ACTIVO', 'INACTIVO', 'SUSPENDIDO', 'RETIRADO']:
+            estado = 'ACTIVO'
+
+        foto_url = _clean_str(emp.link_foto) or 'photos/Default.png'
+
+        if not perfil:
+            perfil = getattr(user, 'empleado_perfil', None)
+            if not perfil:
+                perfil_kwargs = {
+                    'user': user,
+                    'tipo_documento': 'CC',
+                    'numero_documento': cedula_str,
+                    'fecha_expedicion_documento': _parse_date(emp.fexpedicion),
+                    'pasaporte': emp.pasaporte or cedula_str,
+                    'nombres': _clean_str(emp.nombre, 150).upper(),
+                    'apellidos': _clean_str(emp.apellido, 150).upper(),
+                    'fecha_nacimiento': _parse_date(emp.fnacimiento),
+                    'genero': genero,
+                    'estado_civil': estado_civil,
+                    'foto_url': foto_url,
+                    'estado': estado,
+                    'datos_adicionales': datos,
+                }
+                if emp.id and not EmpleadoPerfil.objects.filter(id=emp.id).exists():
+                    perfil_kwargs['id'] = emp.id
+                perfil = EmpleadoPerfil.objects.create(**perfil_kwargs)
+        else:
+            if not perfil.nombres:
+                perfil.nombres = _clean_str(emp.nombre, 150).upper()
+            if not perfil.apellidos:
+                perfil.apellidos = _clean_str(emp.apellido, 150).upper()
+            if not perfil.foto_url or perfil.foto_url == 'photos/Default.png':
+                perfil.foto_url = foto_url
+            perfil.save()
+
+        # 4. Sincronizar satélite EmpleadoLaboral
+        tipo_labor = _clean_str(emp.tipo_labor or 'OPERATIVO').upper()
+        if tipo_labor not in ['OPERATIVO', 'ADMINISTRATIVO', 'SUPERVISOR', 'TRANSVERSAL']:
+            tipo_labor = 'OPERATIVO'
+
+        practicas = datos.get('practicas', {}) if isinstance(datos, dict) else {}
+        p_lectiva = practicas.get('lectiva', {}) if isinstance(practicas, dict) else {}
+        p_prod = practicas.get('practica', {}) if isinstance(practicas, dict) else {}
+
+        supervisor_perfil = None
+        if emp.supervisor:
+            sup_val = emp.supervisor.strip()
+            if sup_val and sup_val not in ('0', 'N/A', 'None'):
+                supervisor_perfil = EmpleadoPerfil.objects.filter(numero_documento=sup_val).first()
+                if not supervisor_perfil and sup_val.isdigit():
+                    supervisor_perfil = EmpleadoPerfil.objects.filter(id=int(sup_val)).first()
+
+        EmpleadoLaboral.objects.update_or_create(
+            empleado=perfil,
+            defaults={
+                'codigo_sap': _clean_str(emp.codigo_sap, 50) or cedula_str,
+                'sede': _clean_str(emp.sede, 50) or 'MEDELLIN',
+                'area': _clean_str(emp.area, 100),
+                'carpeta': _clean_str(emp.carpeta, 100),
+                'puesto': _clean_str(emp.puesto, 150),
+                'movil': _clean_str(emp.movil, 50),
+                'cargo': _clean_str(emp.cargo, 100),
+                'funcion_cargo': _clean_str(emp.funcion_cargo, 255),
+                'tipo_labor': tipo_labor,
+                'zona_nodo': _clean_str(emp.zona_nodo, 100),
+                'supervisor': supervisor_perfil,
+                'grupo_comisiones': _clean_str(emp.grupo_comiciones, 100),
+                'nivel_estudio': _clean_str(emp.nivelestudio, 100),
+                'fecha_ingreso': _parse_date(emp.fecha_ingreso) or date.today(),
+                'fecha_egreso': _parse_date(emp.fecha_egreso),
+                'motivo_egreso': '',
+                'etapa_induccion': 'ENTREGADO' if estado == 'ACTIVO' else 'EN_FORMACION',
+                'practica_lectiva_inicio': _parse_date(p_lectiva.get('fecha_inicio')) if isinstance(p_lectiva, dict) else None,
+                'practica_lectiva_fin': _parse_date(p_lectiva.get('fecha_fin')) if isinstance(p_lectiva, dict) else None,
+                'practica_productiva_inicio': _parse_date(p_prod.get('fecha_inicio')) if isinstance(p_prod, dict) else None,
+                'practica_productiva_fin': _parse_date(p_prod.get('fecha_fin')) if isinstance(p_prod, dict) else None,
+            }
+        )
+
+        # 5. Sincronizar satélite EmpleadoContacto
+        EmpleadoContacto.objects.update_or_create(
+            empleado=perfil,
+            defaults={
+                'correo_corporativo': _clean_str(emp.correo, 150),
+                'correo_personal': _clean_str(emp.correo_electronico_personal or emp.email_personal, 150),
+                'correo_personal_verificado': bool(emp.email_verificar),
+                'celular_corporativo': '',
+                'celular_personal': _clean_str(emp.celular_personal, 50),
+                'celular_alterno': _clean_str(emp.celular_alterno, 50),
+                'telefono_fijo': _clean_str(emp.telefono_fijo, 50),
+                'direccion_residencia': _clean_str(emp.direccion_residencia_actual, 255),
+                'claro_pay': _clean_str(datos.get('claro_pay'), 50),
+            }
+        )
+
+        # 6. Sincronizar satélite EmpleadoSeguridadSocial
+        EmpleadoSeguridadSocial.objects.update_or_create(
+            empleado=perfil,
+            defaults={
+                'eps': _clean_str(emp.eps, 100),
+                'arl': _clean_str(emp.arl, 100) or 'COLMENA',
+                'afp': _clean_str(emp.afp, 100),
+                'esquema_vacunacion': datos.get('vacunacion'),
+            }
+        )
+
+        # 7. Sincronizar satélite EmpleadoMovilidad
+        EmpleadoMovilidad.objects.update_or_create(
+            empleado=perfil,
+            defaults={
+                'placa_vehiculo': _clean_str(emp.placa, 20),
+                'medio_transporte': _clean_str(datos.get('transporte'), 50),
+                'sabe_conducir': _clean_str(datos.get('conduce')).upper() == 'SI',
+            }
+        )
+
+        # 8. Sincronizar satélite EmpleadoDotacionActivos
+        tallas = datos.get('tallas', {}) if isinstance(datos, dict) else {}
+        tallas_dict = tallas if isinstance(tallas, dict) else {}
+        EmpleadoDotacionActivos.objects.update_or_create(
+            empleado=perfil,
+            defaults={
+                'tiene_carnet': bool(emp.carnet and _clean_str(emp.carnet).upper() == 'SI'),
+                'fecha_entrega_carnet': _parse_date(emp.fecha_carnet),
+                'talla_camisa': _clean_str(tallas_dict.get('camisa'), 10),
+                'talla_pantalon': _clean_str(tallas_dict.get('pantalon'), 10),
+                'talla_calzado': _clean_str(tallas_dict.get('botas'), 10),
+                'talla_chaqueta': _clean_str(tallas_dict.get('chaqueta'), 10),
+                'talla_guerrera': _clean_str(tallas_dict.get('guerrera'), 10),
+            }
+        )
+
+        # 9. Sincronizar satélite EmpleadoCertificacionesSST
+        EmpleadoCertificacionesSST.objects.update_or_create(
+            empleado=perfil,
+            defaults={
+                'permiso_trabajo': _clean_str(emp.permiso_trabajo, 100),
+            }
+        )
+
+        # 10. Sincronizar cuentas bancarias
+        bancos = datos.get('datos_bancarios', [])
+        if isinstance(bancos, list):
+            for b in bancos:
+                if isinstance(b, dict) and b.get('nro_cuenta'):
+                    nro = cls.normalizar_numero_cuenta(str(b.get('nro_cuenta', '')))
+                    if nro:
+                        tipo_c = 'CORRIENTE' if _clean_str(b.get('tipo_cuenta')).upper() == 'CORRIENTE' else 'AHORROS'
+                        EmpleadoCuentaBancaria.objects.update_or_create(
+                            empleado=perfil,
+                            numero_cuenta=nro,
+                            defaults={
+                                'banco': _clean_str(b.get('banco'), 100) or 'BANCO',
+                                'tipo_cuenta': tipo_c,
+                                'es_nomina': bool(b.get('nomina', True)),
+                                'titular': _clean_str(b.get('titular'), 150) or perfil.nombre_completo,
+                                'cc_titular': _clean_str(b.get('cc_cuenta'), 50) or perfil.numero_documento,
+                            }
+                        )
+
+        # 11. Sincronizar contactos de emergencia
+        contactos = datos.get('contactos_emergencia', [])
+        if isinstance(contactos, list):
+            for c in contactos:
+                if isinstance(c, dict) and c.get('nombre'):
+                    EmpleadoContactoEmergencia.objects.update_or_create(
+                        empleado=perfil,
+                        nombre_completo=_clean_str(c.get('nombre'), 150),
+                        defaults={
+                            'parentesco': _clean_str(c.get('parentesco'), 50) or 'Contacto',
+                            'telefono': _clean_str(c.get('telefono'), 50) or 'N/A',
+                            'es_principal': True,
+                        }
+                    )
+
+        # 12. Sincronizar personas a cargo
+        personas = datos.get('personas_a_cargo', [])
+        if isinstance(personas, list):
+            for p in personas:
+                if isinstance(p, dict) and p.get('nombre'):
+                    EmpleadoPersonaACargo.objects.update_or_create(
+                        empleado=perfil,
+                        nombre_completo=_clean_str(p.get('nombre'), 150),
+                        defaults={
+                            'parentesco': _clean_str(p.get('parentesco'), 50) or 'Beneficiario',
+                            'numero_documento': _clean_str(p.get('documento'), 50) or None,
+                            'fecha_nacimiento': _parse_date(p.get('fecha_nacimiento')),
+                        }
+                    )
+
+        # 13. Sincronizar documento de identidad frontal / posterior
+        doc_id = datos.get('documento_identidad', {})
+        if isinstance(doc_id, dict):
+            lado_a = doc_id.get('lado_a')
+            lado_b = doc_id.get('lado_b')
+            if lado_a:
+                EmpleadoDocumentoAdjunto.objects.update_or_create(
+                    empleado=perfil,
+                    tipo_documento='CEDULA_FRONTAL',
+                    defaults={'archivo_url': str(lado_a)}
+                )
+            if lado_b:
+                EmpleadoDocumentoAdjunto.objects.update_or_create(
+                    empleado=perfil,
+                    tipo_documento='CEDULA_POSTERIOR',
+                    defaults={'archivo_url': str(lado_b)}
+                )
+
+        return EmpleadoPerfil.objects.select_related(
+            'laboral',
+            'laboral__supervisor',
+            'laboral__padrino',
+            'laboral__entregado_por',
+            'contacto',
+            'seguridad_social',
+            'certificaciones_sst',
+            'dotacion_activos',
+            'movilidad',
+        ).prefetch_related(
+            'cuentas_bancarias',
+            'contactos_emergencia',
+            'personas_a_cargo',
+            'documentos_adjuntos',
+            'comprobantes_dotacion',
+        ).get(id=perfil.id)
 

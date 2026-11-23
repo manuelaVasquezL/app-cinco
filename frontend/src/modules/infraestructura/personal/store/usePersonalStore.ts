@@ -27,6 +27,7 @@ interface PersonalState {
   // Catálogos auxiliares
   supervisores: SupervisorOption[];
   isLoadingSupervisores: boolean;
+  supervisoresLoaded: boolean;
 
   // Filtros activos
   filters: PersonalFilterParams;
@@ -34,7 +35,7 @@ interface PersonalState {
   // Acciones
   fetchEmpleados: () => Promise<void>;
   fetchEmpleadoDetail: (id: number) => Promise<void>;
-  fetchSupervisores: () => Promise<void>;
+  fetchSupervisores: (force?: boolean) => Promise<void>;
   setFilter: <K extends keyof PersonalFilterParams>(key: K, value: PersonalFilterParams[K]) => void;
   setEstadoTab: (estado: EstadoEmpleado | 'TODOS' | 'PERIODO_PRUEBA' | 'PRACTICAS') => void;
   soloPeriodoPrueba: boolean;
@@ -67,6 +68,7 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
   estadisticas: null,
   supervisores: [],
   isLoadingSupervisores: false,
+  supervisoresLoaded: false,
 
   filters: { ...initialFilters },
   soloPeriodoPrueba: false,
@@ -118,13 +120,16 @@ export const usePersonalStore = create<PersonalState>((set, get) => ({
     }
   },
 
-  fetchSupervisores: async () => {
+  fetchSupervisores: async (force = false) => {
+    const state = get();
+    if (state.isLoadingSupervisores) return;
+    if (state.supervisoresLoaded && !force) return;
     set({ isLoadingSupervisores: true });
     try {
       const sups = await personalService.getSupervisores();
-      set({ supervisores: sups, isLoadingSupervisores: false });
+      set({ supervisores: sups, isLoadingSupervisores: false, supervisoresLoaded: true });
     } catch {
-      set({ isLoadingSupervisores: false });
+      set({ isLoadingSupervisores: false, supervisoresLoaded: true });
     }
   },
 

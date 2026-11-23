@@ -2,8 +2,12 @@
 Mixin de alcance de datos (Row-Level Security) para el módulo de empleados.
 Garantiza que ningún usuario acceda a datos de colaboradores fuera de su jurisdicción.
 """
+from typing import TYPE_CHECKING, Optional
 from django.db.models import Q
 from apps.empleados.constants import EmpleadosPermisos
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 
 class ScopedEmpleadoQuerySetMixin:
@@ -15,12 +19,16 @@ class ScopedEmpleadoQuerySetMixin:
     - Colaborador regular: Únicamente su propio perfil.
     """
 
-    def get_scoped_empleados_queryset(self, base_qs=None):
+    if TYPE_CHECKING:
+        request: Request
+
+    def get_scoped_empleados_queryset(self, base_qs=None, request=None):
         if base_qs is None:
             from apps.empleados.models import EmpleadoPerfil
             base_qs = EmpleadoPerfil.objects.all()
 
-        user = getattr(self.request, 'user', None)
+        req = request or getattr(self, 'request', None)
+        user = getattr(req, 'user', None) if req else None
 
         # 1. No autenticado
         if not user or not user.is_authenticated:

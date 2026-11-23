@@ -197,8 +197,8 @@ export const PersonalStats: React.FC<Props> = ({
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="text-xs font-bold text-brand-900 dark:text-brand-200 truncate">
                       {countPracticasCritica > 0
-                        ? `Aprendices SENA: Por Vencer (${countPracticasCritica})`
-                        : `Aprendices SENA (${countPracticas})`}
+                        ? `Aprendices: Por Vencer (${countPracticasCritica})`
+                        : `Aprendices (${countPracticas})`}
                     </h4>
                     {countPracticasCritica > 0 && (
                       <span className="rounded-full bg-brand-100 border border-brand-200 px-2 py-0.5 text-[10px] font-bold text-brand-700 dark:bg-brand-900/50 dark:border-brand-800 dark:text-brand-300">

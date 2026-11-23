@@ -2,6 +2,7 @@ import logging
 from django.db import connections
 from django.db.models import Q
 from django.core.exceptions import ValidationError
+from django.http import Http404
 from rest_framework import status, filters
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
@@ -31,7 +32,7 @@ from apps.empleados.serializers import (
     EmpleadoDocumentoAdjuntoSerializer,
     EmpleadoDotacionComprobanteSerializer,
 )
-from apps.empleados.services import EmpleadoWorkflowService
+from apps.empleados.services import EmpleadoWorkflowService, InformeCapacidadService
 from apps.empleados.mixins import ScopedEmpleadoQuerySetMixin
 
 
@@ -155,6 +156,41 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
             return qs.order_by('laboral__fecha_ingreso')
 
         return qs.order_by('apellidos', 'nombres')
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except Http404:
+            lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+            lookup_val = self.kwargs.get(lookup_url_kwarg)
+
+            # Si ya existe en la base normalizada EmpleadoPerfil pero fue filtrado
+            # por alcance de datos (Row-Level Security), respetar el 404 de seguridad.
+            val_str = str(lookup_val).strip() if lookup_val is not None else ''
+            if val_str:
+                ya_existe = False
+                if val_str.isdigit():
+                    ya_existe = EmpleadoPerfil.objects.filter(id=int(val_str)).exists()
+                if not ya_existe:
+                    ya_existe = EmpleadoPerfil.objects.filter(numero_documento=val_str).exists()
+                if ya_existe:
+                    raise
+
+            try:
+                perfil = EmpleadoWorkflowService.sincronizar_desde_legacy(lookup_val)
+            except Exception as e:
+                logger.warning(f"No se pudo sincronizar colaborador legacy #{lookup_val}: {e}")
+                perfil = None
+
+            if perfil:
+                scoped_qs = self.get_scoped_empleados_queryset(
+                    base_qs=EmpleadoPerfil.objects.filter(id=perfil.id)
+                )
+                if not scoped_qs.exists():
+                    raise Http404("No se encontró el colaborador solicitado o no tiene permisos para consultarlo.")
+                self.check_object_permissions(self.request, perfil)
+                return perfil
+            raise
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -446,6 +482,7 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         ip_address = request.META.get('REMOTE_ADDR')
+        user_op = request.user if getattr(request.user, 'is_authenticated', False) else None
         persona = EmpleadoWorkflowService.gestionar_persona_a_cargo(
             empleado_id=pk,
             nombre_completo=serializer.validated_data['nombre_completo'],
@@ -454,7 +491,7 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
             numero_documento=serializer.validated_data.get('numero_documento'),
             fecha_nacimiento=serializer.validated_data.get('fecha_nacimiento'),
             persona_id=serializer.validated_data.get('persona_id'),
-            user_operator=request.user,
+            user_operator=user_op,
             ip_address=ip_address
         )
         return Response(EmpleadoPersonaACargoSerializer(persona).data, status=status.HTTP_200_OK)
@@ -465,10 +502,11 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
         Eliminación de persona a cargo con traza de auditoría.
         """
         ip_address = request.META.get('REMOTE_ADDR')
+        user_op = request.user if getattr(request.user, 'is_authenticated', False) else None
         EmpleadoWorkflowService.eliminar_persona_a_cargo(
             empleado_id=pk,
             persona_id=int(persona_id),
-            user_operator=request.user,
+            user_operator=user_op,
             ip_address=ip_address
         )
         return Response({
@@ -888,21 +926,37 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
     @action(detail=False, methods=['get'], url_path='supervisores')
     def lista_supervisores(self, request):
         """
-        Endpoint auxiliar liviano para poblar dropdowns de supervisores/líderes operativos.
+        Endpoint auxiliar liviano para poblar dropdowns y buscadores de supervisores,
+        coordinadores, jefes y líderes operativos (Regla Legacy: consulta_inteligente).
+        Filtra exclusivamente en la base de datos default por cargo o tipo_labor.
         """
-        supervisores = EmpleadoPerfil.objects.filter(
-            estado='ACTIVO',
-            laboral__tipo_labor__in=['SUPERVISOR', 'ADMINISTRATIVO']
-        ).values('id', 'numero_documento', 'nombres', 'apellidos', 'laboral__cargo', 'laboral__area', 'laboral__movil')
-        
+        from django.db.models import Q
+        criterios = ['lider', 'líder', 'jefe', 'director', 'supervisor', 'geren', 'coordinador']
+        q_cargos = Q(laboral__tipo_labor='SUPERVISOR')
+        for c in criterios:
+            q_cargos |= Q(laboral__cargo__icontains=c)
+
+        qs = EmpleadoPerfil.objects.filter(
+            estado='ACTIVO'
+        ).filter(q_cargos)
+
+        area = request.query_params.get('area')
+        if area:
+            qs = qs.filter(laboral__area__iexact=area.strip())
+
+        supervisores = qs.values(
+            'id', 'numero_documento', 'nombres', 'apellidos',
+            'laboral__cargo', 'laboral__area', 'laboral__movil'
+        ).order_by('apellidos', 'nombres')
+
         resultado = [
             {
                 'id': s['id'],
                 'documento': s['numero_documento'],
                 'nombre': f"{s['nombres']} {s['apellidos']}".strip(),
                 'nombre_completo': f"{s['nombres']} {s['apellidos']}".strip(),
-                'cargo': s['laboral__cargo'],
-                'area': s['laboral__area'],
+                'cargo': s['laboral__cargo'] or '',
+                'area': s['laboral__area'] or '',
                 'movil': s.get('laboral__movil') or '',
             }
             for s in supervisores
@@ -1225,5 +1279,31 @@ class EmpleadoPerfilViewSet(ScopedEmpleadoQuerySetMixin, ModelViewSet):
             return Response({'error': msg}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': f'Error al restablecer la contraseña: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='informe-capacidad')
+    def informe_capacidad(self, request):
+        """
+        Genera el Informe Integral de Infraestructura y Capacidad.
+        Equivalente a infraestructura_cinco_informe.php del sistema Legacy:
+        1. Capacidad por Área, Carpeta y Colaboradores (3 paneles).
+        2. Período de Prueba.
+        3. Alerta Contratos.
+        4. Rotación por Área (mes a mes histórico).
+        Parámetro query opcional: ?anio=2026.
+        """
+        anio_raw = request.query_params.get('anio')
+        anio = int(anio_raw) if anio_raw and anio_raw.isdigit() else None
+
+        datos = InformeCapacidadService.generar_informe(anio=anio)
+        return Response(datos, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='areas-carpetas')
+    def areas_carpetas(self, request):
+        """
+        Retorna el catálogo agrupado de áreas y carpetas operativas para selects dinámicos y dependientes.
+        """
+        catalogo = EmpleadoWorkflowService.obtener_catalogo_areas_carpetas()
+        return Response(catalogo, status=status.HTTP_200_OK)
+
 
 

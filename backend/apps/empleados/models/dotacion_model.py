@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING, Any
 from django.db import models
 from django.contrib.auth import get_user_model
 from .perfil_model import EmpleadoPerfil
@@ -25,6 +26,9 @@ class EmpleadoDotacionActivos(models.Model):
 
 
 class EmpleadoDotacionComprobante(models.Model):
+    if TYPE_CHECKING:
+        subido_por: Any
+
     id = models.BigAutoField(primary_key=True)
     empleado = models.ForeignKey(EmpleadoPerfil, on_delete=models.CASCADE, related_name='comprobantes_dotacion')
     fecha_entrega = models.DateField()

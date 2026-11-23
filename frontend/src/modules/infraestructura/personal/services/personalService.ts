@@ -9,6 +9,9 @@ import {
   ReactivarEmpleadoPayload,
   GestionarCuentaBancariaPayload,
   EmpleadoCuentaBancaria,
+  SolicitarTrasladoPayload,
+  SolicitarTrasladoResponse,
+  AreasCarpetasResponse,
   EmpleadoAuditoriaLog,
   EmpleadoDocumentoAdjunto,
   EmpleadoDotacionComprobante,
@@ -20,6 +23,8 @@ import {
   EmpleadoSSFFItem,
   EmpleadoSIIGOItem,
   ImportReporteResult,
+  InformeCapacidadResponse,
+  InformeInfraestructuraResponse,
 } from "@/types/empleado";
 
 export interface CuadrillaInfoResponse {
@@ -47,7 +52,10 @@ export interface RestablecerContrasenaResponse {
 export interface SupervisorOption {
   id: number;
   nombre: string;
+  nombre_completo?: string;
+  documento?: string;
   cargo?: string;
+  area?: string;
   movil?: string;
 }
 
@@ -155,6 +163,31 @@ export const personalService = {
     const response = await api.post<EmpleadoPerfilCompleto>(
       `/empleados/perfiles/${id}/reactivar/`,
       payload || {}
+    );
+    return response.data;
+  },
+
+  /**
+   * Emite una solicitud formal de cambio de área y carpeta operativa
+   * dirigida a Gestión Humana y Programación con sello de auditoría.
+   */
+  async solicitarTraslado(
+    id: number,
+    payload: SolicitarTrasladoPayload
+  ): Promise<SolicitarTrasladoResponse> {
+    const response = await api.post<SolicitarTrasladoResponse>(
+      `/empleados/perfiles/${id}/solicitar-traslado/`,
+      payload
+    );
+    return response.data;
+  },
+
+  /**
+   * Obtiene el catálogo unificado de áreas y carpetas operativas agrupadas (DISTINCT).
+   */
+  async getAreasCarpetas(): Promise<AreasCarpetasResponse> {
+    const response = await api.get<AreasCarpetasResponse>(
+      "/empleados/perfiles/areas-carpetas/"
     );
     return response.data;
   },
@@ -279,8 +312,9 @@ export const personalService = {
   /**
    * Lista supervisores / líderes operativos elegibles para asignación.
    */
-  async getSupervisores(): Promise<SupervisorOption[]> {
-    const response = await api.get<SupervisorOption[]>("/empleados/perfiles/supervisores/");
+  async getSupervisores(area?: string): Promise<SupervisorOption[]> {
+    const params = area ? { area } : {};
+    const response = await api.get<SupervisorOption[]>("/empleados/perfiles/supervisores/", { params });
     return response.data;
   },
   /**
@@ -488,6 +522,17 @@ export const personalService = {
       aprendices_ids: aprendicesIds,
       forzar,
     });
+    return response.data;
+  },
+
+  /**
+   * Obtiene el informe integral de infraestructura y capacidad (Legacy infraestructura_cinco_informe.php).
+   * Incluye capacidad por área/carpeta/empleados, período de prueba, alerta contratos y rotación.
+   */
+  async getInformeCapacidad(anio?: number): Promise<InformeInfraestructuraResponse> {
+    const params: Record<string, number> = {};
+    if (anio) params.anio = anio;
+    const response = await api.get<InformeInfraestructuraResponse>("/empleados/perfiles/informe-capacidad/", { params });
     return response.data;
   },
 };

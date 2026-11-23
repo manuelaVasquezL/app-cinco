@@ -39,12 +39,14 @@ import {
   Lock,
   KeyRound,
   Package,
+  ArrowLeftRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   EmpleadoPerfilCompleto,
   EmpleadoAuditoriaLog,
   EmpleadoPersonaACargo,
+  EmpleadoCuentaBancaria,
 } from "@/types/empleado";
 import { personalService } from "../services/personalService";
 import { ModalCuentaBancaria } from "./ModalCuentaBancaria";
@@ -55,6 +57,8 @@ import { ModalEntregaGH } from "./ModalEntregaGH";
 import { ModalAsignarPlaca } from "./ModalAsignarPlaca";
 import { ModalEditarPerfil } from "./ModalEditarPerfil";
 import { ModalRestablecerContrasena } from "./ModalRestablecerContrasena";
+import { ModalSolicitarTraslado } from "./ModalSolicitarTraslado";
+import { getAntiguedadInfo } from "./personalTable.utils";
 
 
 const resolveFotoUrl = (url?: string | null): string | undefined => {
@@ -134,6 +138,9 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   celular_personal: 'Celular Personal',
   celular_corporativo: 'Celular Corporativo',
   celular_alterno: 'Celular Alterno',
+  area_solicitada: 'Nueva Área Solicitada',
+  carpeta_solicitada: 'Nueva Carpeta Solicitada',
+  motivo: 'Motivo / Justificación',
   telefono_fijo: 'Teléfono Fijo',
   correo_personal: 'Correo Personal',
   correo_corporativo: 'Correo Corporativo',
@@ -216,6 +223,19 @@ const extractAuditDiffs = (
   return diffs.sort((a, b) => a.label.localeCompare(b.label));
 };
 
+const getDiasParaFinContrato = (fechaFin?: string | null): number | null => {
+  if (!fechaFin) return null;
+  try {
+    const fin = new Date(fechaFin + "T00:00:00");
+    if (isNaN(fin.getTime())) return null;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    return Math.ceil((fin.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+  } catch {
+    return null;
+  }
+};
+
 export const PersonalDetailModal: React.FC<Props> = ({
   empleado,
   isOpen,
@@ -224,6 +244,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
   initialTab = "laboral",
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const { fetchEmpleadoDetail } = usePersonalStore();
 
   React.useEffect(() => {
     if (isOpen && initialTab) {
@@ -291,6 +312,8 @@ export const PersonalDetailModal: React.FC<Props> = ({
   };
 
   const [showModalCuenta, setShowModalCuenta] = useState(false);
+  const [cuentaToEdit, setCuentaToEdit] = useState<EmpleadoCuentaBancaria | null>(null);
+  const [showModalTraslado, setShowModalTraslado] = useState(false);
   const [showModalEntrega, setShowModalEntrega] = useState(false);
   const [showModalPlaca, setShowModalPlaca] = useState(false);
   const [showModalContactoEmergencia, setShowModalContactoEmergencia] = useState(false);
@@ -317,6 +340,9 @@ export const PersonalDetailModal: React.FC<Props> = ({
         toast.success(`Beneficiario(a) ${itemToDelete.nombre} eliminado.`);
       }
       setItemToDelete(null);
+      if (fetchEmpleadoDetail) {
+        await fetchEmpleadoDetail(empleado.id);
+      }
       if (onRefresh) onRefresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al eliminar registro";
@@ -334,11 +360,14 @@ export const PersonalDetailModal: React.FC<Props> = ({
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [expandedLogs, setExpandedLogs] = useState<Record<string | number, boolean>>({});
 
-  const toggleLogExpanded = (logKey: string | number) => {
-    setExpandedLogs((prev) => ({
-      ...prev,
-      [logKey]: !prev[logKey],
-    }));
+  const toggleLogExpanded = (logKey: string | number, currentExpanded?: boolean) => {
+    setExpandedLogs((prev) => {
+      const currentVal = currentExpanded !== undefined ? currentExpanded : Boolean(prev[logKey]);
+      return {
+        ...prev,
+        [logKey]: !currentVal,
+      };
+    });
   };
 
   const contentBodyRef = React.useRef<HTMLDivElement>(null);
@@ -351,6 +380,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
 
   React.useEffect(() => {
     if (isOpen && empleado?.id && activeTab === "auditoria") {
+      setExpandedLogs({});
       setIsLoadingAudit(true);
       personalService.getAuditoriaLog(empleado.id)
         .then((data) => setAuditLogs(Array.isArray(data) ? data : []))
@@ -358,6 +388,23 @@ export const PersonalDetailModal: React.FC<Props> = ({
         .finally(() => setIsLoadingAudit(false));
     }
   }, [isOpen, empleado?.id, activeTab]);
+
+  const getAntiguedadTexto = () => {
+    if (!empleado) return "N/A";
+    const fi = empleado.laboral?.fecha_ingreso || (empleado as any).fecha_ingreso;
+    const fe =
+      empleado.laboral?.fecha_egreso ||
+      (empleado.laboral as any)?.fecha_retiro ||
+      (empleado as any).fecha_egreso;
+    const est = empleado.estado;
+    return getAntiguedadInfo(
+      fi,
+      fe,
+      est,
+      empleado.dias_en_empresa,
+      empleado.meses_en_empresa
+    ).texto;
+  };
 
   const getDiasEnEmpresa = () => {
     if (!empleado) return 0;
@@ -649,11 +696,22 @@ export const PersonalDetailModal: React.FC<Props> = ({
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Área / Carpeta</p>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
-                      {empleado.laboral?.area || "N/A"} / {empleado.laboral?.carpeta || "N/A"}
-                    </p>
+                  <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900 flex flex-col justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Área / Carpeta</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5 break-words">
+                        {empleado.laboral?.area || "N/A"} / {empleado.laboral?.carpeta || "N/A"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowModalTraslado(true)}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50/70 py-1.5 text-xs font-semibold text-cyan-800 hover:bg-cyan-100 dark:border-cyan-800/60 dark:bg-cyan-950/40 dark:text-cyan-300 dark:hover:bg-cyan-900/50 transition-colors cursor-pointer"
+                      title="Emitir solicitud formal de traslado de área y carpeta"
+                    >
+                      <ArrowLeftRight className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+                      <span>Solicitar Traslado</span>
+                    </button>
                   </div>
 
                   <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900">
@@ -750,6 +808,69 @@ export const PersonalDetailModal: React.FC<Props> = ({
                         )
                       ) : (
                         <span className="text-sm font-semibold text-gray-500">N/A</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Tipo de Contrato</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
+                      {empleado.laboral?.tipo_contrato ? String(empleado.laboral.tipo_contrato).replace(/_/g, " ") : "No especificado"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Duración Contrato</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
+                      {empleado.laboral?.duracion_contrato || (empleado.laboral?.tipo_contrato === "INDEFINIDO" ? "Indefinido" : "No registrada")}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Inicio de Contrato</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
+                      {empleado.laboral?.fecha_inicio_contrato || empleado.laboral?.fecha_ingreso || "N/A"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs dark:border-gray-800 dark:bg-gray-900">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Vencimiento Contrato</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                      {empleado.laboral?.fecha_fin_contrato ? (
+                        <>
+                          <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">
+                            {empleado.laboral.fecha_fin_contrato}
+                          </span>
+                          {(() => {
+                            const dias = getDiasParaFinContrato(empleado.laboral?.fecha_fin_contrato);
+                            if (dias === null) return null;
+                            if (dias < 0) {
+                              return (
+                                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                                  Vencido ({Math.abs(dias)}d)
+                                </span>
+                              );
+                            }
+                            return (
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold border ${
+                                  dias > 30
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-400"
+                                    : dias > 15
+                                    ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-500/10 dark:text-amber-400"
+                                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-500/10 dark:text-rose-400 animate-pulse"
+                                }`}
+                              >
+                                <Clock className="h-3 w-3 shrink-0" />
+                                <span>{dias <= 30 ? `Preaviso: ${dias}d` : `Vence en ${dias}d`}</span>
+                              </span>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <span className="text-sm font-semibold text-gray-500">
+                          {empleado.laboral?.tipo_contrato === "INDEFINIDO" ? "No aplica (Indefinido)" : "Sin fecha fin"}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1073,7 +1194,25 @@ export const PersonalDetailModal: React.FC<Props> = ({
                       <div className="rounded-lg border border-gray-200/60 p-3 dark:border-gray-800">
                         <p className="text-xs text-gray-500 dark:text-gray-400">Esquema Vacunación</p>
                         <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">
-                          {empleado.seguridad_social?.esquema_vacunacion || "Sin registrar"}
+                          {(() => {
+                            const val = empleado.seguridad_social?.esquema_vacunacion;
+                            if (!val) return "Sin registrar";
+                            if (typeof val === "string") return val.trim() || "Sin registrar";
+                            if (typeof val === "object") {
+                              const parts: string[] = [];
+                              const doses = Object.entries(val)
+                                .filter(([k, v]) => k.toLowerCase().includes("dosis") && v)
+                                .map(([k, v]) => `${k.replace("_", " ")}: ${v}`);
+                              if (doses.length) parts.push(doses.join(", "));
+                              if ((val as any).fecha_ult_vacuna) {
+                                const f = String((val as any).fecha_ult_vacuna).slice(0, 10);
+                                if (f && f !== "0000-00-00") parts.push(`Fecha: ${f}`);
+                              }
+                              if (parts.length) return parts.join(" | ");
+                              return Object.values(val).filter(Boolean).map(String).join(", ") || "Sin registrar";
+                            }
+                            return String(val);
+                          })()}
                         </p>
                       </div>
                     </div>
@@ -1430,7 +1569,10 @@ export const PersonalDetailModal: React.FC<Props> = ({
                       Cuentas Bancarias
                     </h4>
                     <button
-                      onClick={() => setShowModalCuenta(true)}
+                      onClick={() => {
+                        setCuentaToEdit(null);
+                        setShowModalCuenta(true);
+                      }}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-400"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -1458,11 +1600,24 @@ export const PersonalDetailModal: React.FC<Props> = ({
                               </p>
                             </div>
                           </div>
-                          {c.es_nomina && (
-                            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-                              Cuenta de Nómina
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {c.es_nomina && (
+                              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                                Cuenta de Nómina
+                              </span>
+                            )}
+                            <button
+                              onClick={() => {
+                                setCuentaToEdit(c);
+                                setShowModalCuenta(true);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors"
+                              title="Editar cuenta bancaria"
+                            >
+                              <Pencil className="h-3 w-3" />
+                              <span>Editar</span>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1730,6 +1885,8 @@ export const PersonalDetailModal: React.FC<Props> = ({
                             return { color: "bg-emerald-600", label: "Actualización de Movilidad" };
                           case "ENTREGA_AREA":
                             return { color: "bg-emerald-500", label: "Entrega de Personal a Operaciones" };
+                          case "SOLICITUD_TRASLADO":
+                            return { color: "bg-cyan-500", label: "Solicitud Formal de Traslado" };
                           case "ASIGNACION_PLACA":
                             return { color: "bg-amber-500", label: "Asignación de Vehículo / Placa" };
                           case "LIBERACION_PLACA":
@@ -1770,7 +1927,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
                       const badge = getActionBadge();
                       const diffs = extractAuditDiffs(log.datos_anteriores, log.datos_nuevos);
                       const logKey = log.id || index;
-                      const isExpanded = expandedLogs[logKey] ?? (diffs.length > 0 && diffs.length <= 4);
+                      const isExpanded = Boolean(expandedLogs[logKey]);
 
                       return (
                         <div key={logKey} className="relative group">
@@ -1794,7 +1951,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
                             <div className="mt-2.5 space-y-2">
                               <button
                                 type="button"
-                                onClick={() => toggleLogExpanded(logKey)}
+                                onClick={() => toggleLogExpanded(logKey, isExpanded)}
                                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors"
                               >
                                 <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
@@ -1910,7 +2067,7 @@ export const PersonalDetailModal: React.FC<Props> = ({
           {/* Footer */}
           <div className="shrink-0 flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/50">
             <span className="text-xs text-gray-500 dark:text-gray-400">
-              ID Interno: <strong className="font-mono text-gray-700 dark:text-gray-200">{empleado.id}</strong> • Antigüedad: <strong className="text-gray-800 dark:text-gray-100">{getDiasEnEmpresa()} días</strong>
+              ID Interno: <strong className="font-mono text-gray-700 dark:text-gray-200">{empleado.id}</strong> • Antigüedad: <strong className="text-gray-800 dark:text-gray-100">{getAntiguedadTexto()}</strong>
             </span>
             <button
               onClick={onClose}
@@ -1936,7 +2093,19 @@ export const PersonalDetailModal: React.FC<Props> = ({
         <ModalCuentaBancaria
           empleado={empleado}
           isOpen={showModalCuenta}
-          onClose={() => setShowModalCuenta(false)}
+          cuentaToEdit={cuentaToEdit}
+          onClose={() => {
+            setShowModalCuenta(false);
+            setCuentaToEdit(null);
+          }}
+          onSuccess={onRefresh}
+        />
+      )}
+      {showModalTraslado && (
+        <ModalSolicitarTraslado
+          empleado={empleado}
+          isOpen={showModalTraslado}
+          onClose={() => setShowModalTraslado(false)}
           onSuccess={onRefresh}
         />
       )}

@@ -39,7 +39,7 @@ export const ModalAlertasPeriodoPrueba: React.FC<Props> = ({
   onSelectEmpleado,
   onFiltrarEnTabla,
 }) => {
-  const [tabFiltro, setTabFiltro] = useState<TabFiltro>("TODOS");
+  const [tabFiltro, setTabFiltro] = useState<TabFiltro>("CRITICOS");
   const [search, setSearch] = useState("");
   const [remotosPrueba, setRemotosPrueba] = useState<EmpleadoPerfilItem[]>([]);
   const [isLoadingRemoto, setIsLoadingRemoto] = useState(false);
@@ -47,6 +47,8 @@ export const ModalAlertasPeriodoPrueba: React.FC<Props> = ({
 
   React.useEffect(() => {
     if (!isOpen) return;
+    setTabFiltro("CRITICOS");
+    setSearch("");
     let isMounted = true;
     setIsLoadingRemoto(true);
     personalService

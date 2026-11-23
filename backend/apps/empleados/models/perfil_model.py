@@ -1,5 +1,14 @@
+from typing import TYPE_CHECKING, List, Dict, Any, Optional
 from django.db import models
 from django.contrib.auth import get_user_model
+
+if TYPE_CHECKING:
+    from apps.empleados.models.laboral_model import EmpleadoLaboral
+    from apps.empleados.models.contacto_model import EmpleadoContacto
+    from apps.empleados.models.movilidad_model import EmpleadoMovilidad
+    from apps.empleados.models.seguridad_social_model import EmpleadoSeguridadSocial
+    from apps.empleados.models.sst_model import EmpleadoCertificacionesSST
+    from apps.empleados.models.dotacion_model import EmpleadoDotacionActivos
 
 User = get_user_model()
 
@@ -9,6 +18,16 @@ class EmpleadoPerfil(models.Model):
     Entidad principal de identidad y perfil del colaborador.
     Cada empleado tiene obligatoriamente un usuario vinculado en auth_user.
     """
+    if TYPE_CHECKING:
+        user: Any
+        laboral: EmpleadoLaboral
+        contacto: EmpleadoContacto
+        movilidad: EmpleadoMovilidad
+        seguridad_social: EmpleadoSeguridadSocial
+        sst: EmpleadoCertificacionesSST
+        dotacion: EmpleadoDotacionActivos
+        auxiliares_desvinculados: List[Dict[str, Any]]
+
     ESTADO_CHOICES = [
         ('ACTIVO', 'Activo'),
         ('INACTIVO', 'Inactivo'),
@@ -86,6 +105,12 @@ class EmpleadoPerfil(models.Model):
             from django.utils import timezone
             fin = self.laboral.fecha_egreso or timezone.now().date()
             return max(0, (fin - self.laboral.fecha_ingreso).days)
+        return 0
+
+    @property
+    def meses_en_empresa(self):
+        if hasattr(self, 'laboral') and self.laboral:
+            return self.laboral.meses_en_empresa
         return 0
 
     @property

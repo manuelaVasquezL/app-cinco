@@ -5,9 +5,10 @@ import React, { useState, useRef, useEffect } from "react";
 import { X, Save, Loader2, Mail, Shield, Shirt, MapPin, User, FileText, Upload, ExternalLink, CheckCircle2, Briefcase, Building2, Calendar, Phone, Car, Trash2, Users, Lock } from "lucide-react";
 import DatePicker from "@/components/form/date-picker";
 import { toast } from "sonner";
-import { EmpleadoPerfilCompleto, EmpleadoDocumentoAdjunto } from "@/types/empleado";
+import { EmpleadoPerfilCompleto, EmpleadoDocumentoAdjunto, AreasCarpetasResponse } from "@/types/empleado";
 import { personalService } from "../services/personalService";
 import { usePersonalStore } from "../store/usePersonalStore";
+import { SearchableSupervisorSelect } from "./SearchableSupervisorSelect";
 
 interface Props {
   empleado: EmpleadoPerfilCompleto;
@@ -99,6 +100,16 @@ function calcularSeisMesesDespues(fechaIso: string): string {
   return `${año}-${mes}-${dia}`;
 }
 
+const TIPOS_CONTRATO = [
+  { value: "FIJO", label: "Término Fijo" },
+  { value: "INDEFINIDO", label: "Término Indefinido" },
+  { value: "OBRA_LABOR", label: "Por Obra o Labor" },
+  { value: "APRENDIZ_SENA_LECTIVA", label: "Aprendiz SENA (Lectiva)" },
+  { value: "APRENDIZ_SENA_PRODUCTIVA", label: "Aprendiz SENA (Productiva)" },
+  { value: "PRESTACION_SERVICIOS", label: "Prestación de Servicios" },
+  { value: "OTRO", label: "Otro" },
+];
+
 export const ModalEditarPerfil: React.FC<Props> = ({
   empleado,
   seccionInicial = "contacto",
@@ -110,10 +121,10 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<"laboral" | "contacto" | "sst" | "dotacion" | "movilidad">(seccionInicial);
 
   React.useEffect(() => {
-    if (!supervisores || supervisores.length === 0) {
+    if (isOpen) {
       fetchSupervisores();
     }
-  }, [supervisores, fetchSupervisores]);
+  }, [isOpen, fetchSupervisores]);
 
   // Form State: Información Laboral (Tabla 2: empleados_laboral)
   const [cargo, setCargo] = useState(empleado.laboral?.cargo || "");
@@ -121,6 +132,55 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [sede, setSede] = useState(empleado.laboral?.sede || "MEDELLIN");
   const [area, setArea] = useState(empleado.laboral?.area || "");
   const [carpeta, setCarpeta] = useState(empleado.laboral?.carpeta || "");
+
+  // Catálogo de áreas y carpetas (estrictamente de EmpleadoLaboral en BD default)
+  const [catalogoAreas, setCatalogoAreas] = useState<AreasCarpetasResponse | null>(null);
+  const [isLoadingCatalogoAreas, setIsLoadingCatalogoAreas] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const loadCatalogo = async () => {
+        setIsLoadingCatalogoAreas(true);
+        try {
+          const data = await personalService.getAreasCarpetas();
+          setCatalogoAreas(data);
+        } catch (err) {
+          console.error("Error al cargar áreas y carpetas:", err);
+        } finally {
+          setIsLoadingCatalogoAreas(false);
+        }
+      };
+      loadCatalogo();
+    }
+  }, [isOpen]);
+
+  const areasDisponibles = React.useMemo(() => {
+    const lista = [...(catalogoAreas?.areas || [])];
+    if (area && !lista.includes(area)) {
+      lista.unshift(area);
+    }
+    return lista;
+  }, [catalogoAreas, area]);
+
+  const carpetasDisponibles = React.useMemo(() => {
+    const lista = (area && catalogoAreas?.carpetas_por_area?.[area])
+      ? [...catalogoAreas.carpetas_por_area[area]]
+      : [];
+    if (carpeta && !lista.includes(carpeta)) {
+      lista.unshift(carpeta);
+    }
+    return lista;
+  }, [catalogoAreas, area, carpeta]);
+
+  const handleAreaChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nuevaArea = e.target.value;
+    setArea(nuevaArea);
+    setCarpeta("");
+  };
+
+  const handleCarpetaChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setCarpeta(e.target.value);
+  };
   const [codigoSap, setCodigoSap] = useState(empleado.laboral?.codigo_sap || "");
   const [puesto, setPuesto] = useState(empleado.laboral?.puesto || "");
   const [movil, setMovil] = useState(empleado.laboral?.movil || "");
@@ -182,6 +242,18 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [formador, setFormador] = useState(empleado.laboral?.formador || "");
   const [grupoComisiones, setGrupoComisiones] = useState(empleado.laboral?.grupo_comisiones || "");
   const [nivelEstudio, setNivelEstudio] = useState(empleado.laboral?.nivel_estudio || "");
+  const [tipoContrato, setTipoContrato] = useState<string>(
+    empleado.laboral?.tipo_contrato || "FIJO"
+  );
+  const [duracionContrato, setDuracionContrato] = useState<string>(
+    empleado.laboral?.duracion_contrato || ""
+  );
+  const [fechaInicioContrato, setFechaInicioContrato] = useState<string>(
+    empleado.laboral?.fecha_inicio_contrato || ""
+  );
+  const [fechaFinContrato, setFechaFinContrato] = useState<string>(
+    empleado.laboral?.fecha_fin_contrato || ""
+  );
   const [fechaIngreso, setFechaIngreso] = useState(empleado.laboral?.fecha_ingreso || "");
   const [etapaInduccion, setEtapaInduccion] = useState(empleado.laboral?.etapa_induccion || "EN_FORMACION");
 
@@ -393,7 +465,24 @@ export const ModalEditarPerfil: React.FC<Props> = ({
   const [eps, setEps] = useState(empleado.seguridad_social?.eps || "SURA");
   const [arl, setArl] = useState(empleado.seguridad_social?.arl || "COLMENA");
   const [afp, setAfp] = useState(empleado.seguridad_social?.afp || empleado.seguridad_social?.afp_pensiones || "PORVENIR");
-  const [esquemaVacunacion, setEsquemaVacunacion] = useState(empleado.seguridad_social?.esquema_vacunacion || "");
+  const [esquemaVacunacion, setEsquemaVacunacion] = useState<string>(() => {
+    const val = empleado.seguridad_social?.esquema_vacunacion;
+    if (!val) return "";
+    if (typeof val === "string") return val;
+    if (typeof val === "object") {
+      const parts: string[] = [];
+      const doses = Object.entries(val)
+        .filter(([k, v]) => k.toLowerCase().includes("dosis") && v)
+        .map(([k, v]) => `${k.replace("_", " ")}: ${v}`);
+      if (doses.length) parts.push(doses.join(", "));
+      if ((val as any).fecha_ult_vacuna) {
+        const f = String((val as any).fecha_ult_vacuna).slice(0, 10);
+        if (f && f !== "0000-00-00") parts.push(`Fecha: ${f}`);
+      }
+      return parts.join(" | ");
+    }
+    return String(val);
+  });
   const [permisoTrabajo, setPermisoTrabajo] = useState(
     (empleado.certificaciones_sst || empleado.sst)?.permiso_trabajo || ""
   );
@@ -565,6 +654,10 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           formador: formador.trim() || null,
           grupo_comisiones: grupoComisiones.trim() || null,
           nivel_estudio: nivelEstudio.trim() || null,
+          tipo_contrato: tipoContrato || null,
+          duracion_contrato: duracionContrato.trim() || null,
+          fecha_inicio_contrato: fechaInicioContrato || null,
+          fecha_fin_contrato: fechaFinContrato || null,
           fecha_ingreso: fechaIngreso,
           etapa_induccion: etapaInduccion,
           practica_lectiva_inicio: practicaLectivaInicio || null,
@@ -587,7 +680,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
           arl: arl.trim() || null,
           certificado_arl_url: finalArlUrl || null,
           afp: afp.trim() || null,
-          esquema_vacunacion: esquemaVacunacion.trim() || null,
+          esquema_vacunacion: typeof esquemaVacunacion === "string" ? esquemaVacunacion.trim() || null : null,
         },
         certificaciones_sst: {
           permiso_trabajo: permisoTrabajo.trim() || null,
@@ -819,31 +912,40 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                      Área <span className="text-red-500">*</span>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center justify-between">
+                      <span>Área <span className="text-red-500">*</span></span>
+                      {isLoadingCatalogoAreas && <Loader2 className="h-2.5 w-2.5 animate-spin text-brand-600" />}
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={area}
-                      onChange={(e) => setArea(e.target.value.toUpperCase())}
-                      placeholder="Ej: OPERACIONES"
+                      onChange={handleAreaChange}
+                      disabled={isLoadingCatalogoAreas}
                       required
-                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs uppercase text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    />
+                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-xs uppercase text-gray-800 focus:border-brand-500 focus:outline-hidden disabled:bg-gray-100 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:disabled:bg-gray-900"
+                    >
+                      <option value="">-- Seleccione Área --</option>
+                      {areasDisponibles.map((a) => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                       Carpeta <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={carpeta}
-                      onChange={(e) => setCarpeta(e.target.value.toUpperCase())}
-                      placeholder="Ej: RESIDENCIAL"
+                      onChange={handleCarpetaChange}
+                      disabled={!area || isLoadingCatalogoAreas}
                       required
-                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs uppercase text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    />
+                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-xs uppercase text-gray-800 focus:border-brand-500 focus:outline-hidden disabled:bg-gray-100 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:disabled:bg-gray-900"
+                    >
+                      <option value="">{!area ? "Primero seleccione un área..." : "-- Seleccione Carpeta --"}</option>
+                      {carpetasDisponibles.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -863,7 +965,7 @@ export const ModalEditarPerfil: React.FC<Props> = ({
 
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                      Móvil / Cuadrilla
+                      Móvil
                     </label>
 <input
                       type="text"
@@ -922,47 +1024,33 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                      Supervisor / Líder Directo
-                    </label>
-                    <select
-                      value={supervisorId}
-                      onChange={(e) => setSupervisorId(e.target.value)}
-                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    >
-                      <option value="">Sin supervisor asignado...</option>
-                      {supervisores.map((sup) => (
-                        <option key={sup.id} value={sup.id}>
-                          {sup.nombre || (sup as any).nombre_completo} {sup.cargo ? `(${sup.cargo})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <SearchableSupervisorSelect
+                    label="Supervisor / Jefe Directo"
+                    value={supervisorId}
+                    onChange={setSupervisorId}
+                    supervisores={supervisores}
+                    initialName={empleado.laboral?.supervisor_nombre || empleado.laboral?.supervisor_directo_nombre}
+                    areaFiltro={area}
+                    placeholder="Buscar supervisor por nombre, cargo o CC..."
+                    emptyText="Sin supervisor asignado"
+                  />
 
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                      Padrino / Mentor de Inducción
-                    </label>
-                    <select
-                      value={padrinoId}
-                      onChange={(e) => setPadrinoId(e.target.value)}
-                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                    >
-                      <option value="">Sin padrino asignado...</option>
-                      {supervisores.map((sup) => (
-                        <option key={sup.id} value={sup.id}>
-                          {sup.nombre || (sup as any).nombre_completo}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <SearchableSupervisorSelect
+                    label="Padrino"
+                    value={padrinoId}
+                    onChange={setPadrinoId}
+                    supervisores={supervisores}
+                    initialName={empleado.laboral?.padrino_nombre}
+                    areaFiltro={area}
+                    placeholder="Buscar padrino por nombre, cargo o CC..."
+                    emptyText="Sin padrino asignado"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                      Formador Asignado
+                      Formador
                     </label>
                     <input
                       type="text"
@@ -1011,6 +1099,91 @@ export const ModalEditarPerfil: React.FC<Props> = ({
                   <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
                     Fechas Contractuales y Etapa de Inducción
                   </h4>
+                </div>
+
+                {/* Subsección: Contrato Laboral */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                      Tipo de Contrato <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={tipoContrato}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTipoContrato(val);
+                        if (val === "INDEFINIDO") {
+                          setDuracionContrato("INDEFINIDO");
+                          setFechaFinContrato("");
+                        }
+                      }}
+                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    >
+                      {TIPOS_CONTRATO.map((tc) => (
+                        <option key={tc.value} value={tc.value}>
+                          {tc.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                      Duración Contrato
+                    </label>
+                    <input
+                      type="text"
+                      value={duracionContrato}
+                      onChange={(e) => setDuracionContrato(e.target.value)}
+                      disabled={tipoContrato === "INDEFINIDO"}
+                      placeholder={tipoContrato === "INDEFINIDO" ? "No aplica (Indefinido)" : "Ej: 6 Meses, 1 Año..."}
+                      className="h-8 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-xs text-gray-800 focus:border-brand-500 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-white disabled:bg-gray-100 disabled:opacity-60 dark:disabled:bg-gray-800/50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                      Fecha Inicio Contrato
+                    </label>
+                    <DatePicker
+                      id="editar_fecha_inicio_contrato"
+                      placeholder="AAAA-MM-DD"
+                      defaultDate={fechaInicioContrato ? toDateOrUndefined(fechaInicioContrato) : undefined}
+                      onChange={(dates: Date[] | Date) => {
+                        const selected = Array.isArray(dates) ? dates[0] : dates;
+                        if (selected instanceof Date && !isNaN(selected.getTime())) {
+                          const y = selected.getFullYear();
+                          const m = String(selected.getMonth() + 1).padStart(2, "0");
+                          const d = String(selected.getDate()).padStart(2, "0");
+                          setFechaInicioContrato(`${y}-${m}-${d}`);
+                        } else {
+                          setFechaInicioContrato("");
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                      Fecha Fin Contrato
+                    </label>
+                    <DatePicker
+                      id="editar_fecha_fin_contrato"
+                      placeholder={tipoContrato === "INDEFINIDO" ? "No aplica (Indefinido)" : "AAAA-MM-DD"}
+                      defaultDate={fechaFinContrato ? toDateOrUndefined(fechaFinContrato) : undefined}
+                      onChange={(dates: Date[] | Date) => {
+                        const selected = Array.isArray(dates) ? dates[0] : dates;
+                        if (selected instanceof Date && !isNaN(selected.getTime())) {
+                          const y = selected.getFullYear();
+                          const m = String(selected.getMonth() + 1).padStart(2, "0");
+                          const d = String(selected.getDate()).padStart(2, "0");
+                          setFechaFinContrato(`${y}-${m}-${d}`);
+                        } else {
+                          setFechaFinContrato("");
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING, Optional
 from django.db import models
 from django.utils import timezone
 from .perfil_model import EmpleadoPerfil
@@ -7,6 +8,11 @@ class EmpleadoLaboral(models.Model):
     """
     Información contractual, cargo y control del ciclo de inducción / entrega por GH.
     """
+    if TYPE_CHECKING:
+        supervisor_id: Optional[int]
+        padrino_id: Optional[int]
+        entregado_por_id: Optional[int]
+
     ETAPA_INDUCCION_CHOICES = [
         ('EN_FORMACION', 'En Formación (Gestión Humana)'),
         ('ENTREGADO', 'Entregado al Área Operativa'),
@@ -62,6 +68,12 @@ class EmpleadoLaboral(models.Model):
     practica_productiva_inicio = models.DateField(blank=True, null=True)
     practica_productiva_fin = models.DateField(blank=True, null=True)
 
+    # Contrato Laboral
+    tipo_contrato = models.CharField(max_length=50, blank=True, null=True)
+    duracion_contrato = models.CharField(max_length=50, blank=True, null=True)
+    fecha_inicio_contrato = models.DateField(blank=True, null=True)
+    fecha_fin_contrato = models.DateField(blank=True, null=True)
+
     class Meta:
         app_label = 'empleados'
         db_table = 'empleados_laboral'
@@ -102,6 +114,14 @@ class EmpleadoLaboral(models.Model):
             return 0
         fin = self.fecha_egreso or timezone.now().date()
         return max(0, (fin - self.fecha_ingreso).days)
+
+    @property
+    def meses_en_empresa(self):
+        """
+        Calcula la antigüedad en meses cumplidos (días // 30),
+        equivalente a diferenciaFechas() del sistema Legacy.
+        """
+        return self.dias_en_empresa // 30
 
     @property
     def etapa_practica_activa(self):

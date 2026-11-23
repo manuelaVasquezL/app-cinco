@@ -33,6 +33,8 @@
  */
 
 export { Modal } from "./Modal";
+export { ModalImportarBase } from "./ModalImportarBase";
+export type { ModalImportarBaseProps, PlantillaConfig } from "./ModalImportarBase";
 export type { ModalProps } from "./Modal.types";
 export {
   ModalOverlay,
